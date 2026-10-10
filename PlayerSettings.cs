@@ -12,6 +12,12 @@ public sealed class PlayerSettings
     public Guid? LastTrackId { get; set; }
     public double LastPositionSeconds { get; set; }
     public int RepeatMode { get; set; }
+    public string ArtistFilter { get; set; } = "";
+    public string AlbumFilter { get; set; } = "";
+    public string GenreFilter { get; set; } = "";
+    public string YearFilter { get; set; } = "";
+    public bool LikedFilter { get; set; }
+    public bool LocalFilter { get; set; }
     public string? MusicLibraryPath { get; set; }
 
     private static readonly string SettingsPath = Path.Combine(
