@@ -108,11 +108,11 @@
                             <Button Style="{StaticResource SidebarNew}" Click="Unplayed_Click" ToolTip="Unplayed"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="MusicNote224" Margin="0,0,12,0"/><TextBlock Text="Unplayed"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="TextBulletListSquare24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
-                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" PreviewMouseRightButtonUp="PlaylistList_PreviewMouseRightButtonUp" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="4,4,2,4">
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <Border Width="36" Height="36" CornerRadius="6" ClipToBounds="True" Background="#1A2232">
                                                 <Grid>
                                                     <ui:SymbolIcon Symbol="MusicNote224" Foreground="#B6C2D8" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -123,7 +123,6 @@
                                                 <TextBlock Text="{Binding Playlist.Name}" FontWeight="SemiBold" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Text="{Binding Playlist.SongIds.Count, StringFormat={}{0} songs}" FontSize="10" Foreground="{StaticResource WaveMuted}"/>
                                             </StackPanel>
-                                            <Button Grid.Column="2" Content="View" ToolTip="View playlist songs" Click="ViewPlaylist_Click" Padding="7,4" FontSize="11" MinWidth="46" VerticalAlignment="Center" HorizontalAlignment="Center"/><Button Grid.Column="3" Content="⋮" ToolTip="Playlist options" Click="PlaylistContextMenu_Click" Padding="3" VerticalAlignment="Center"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
