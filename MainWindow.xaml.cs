@@ -230,8 +230,24 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
     void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (rows != null) Refresh(); }
+    void ShowPlaylist(Playlist playlist)
+    {
+        selectedPlaylist = playlist;
+        likedOnly = false;
+        SearchBox.Clear();
+        PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, playlist));
+        Refresh();
+    }
     void PlaylistList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    { if (!refreshingPlaylistRows && PlaylistList.SelectedItem is PlaylistRow { Playlist: var p } && !ReferenceEquals(selectedPlaylist, p)) { selectedPlaylist = p; likedOnly = false; Refresh(); } }
+    {
+        if (!refreshingPlaylistRows && PlaylistList.SelectedItem is PlaylistRow { Playlist: var p } && !ReferenceEquals(selectedPlaylist, p))
+            ShowPlaylist(p);
+    }
+    void ViewPlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PlaylistRow row })
+            ShowPlaylist(row.Playlist);
+    }
     void CreatePlaylist_Click(object sender, RoutedEventArgs e)
     {
         var name = PromptDialog.Ask(this, "Create playlist", "Playlist name:");
@@ -247,8 +263,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         string? name = PromptDialog.Ask(this, "Add to playlist", "Enter an existing playlist name:", library.Playlists[0].Name);
         var p = library.Playlists.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (p == null) { MessageBox.Show("Playlist not found."); return; }
-        if (!p.SongIds.Contains(selected.Song.Id)) p.SongIds.Add(selected.Song.Id);
-        Save(); Refresh();
+        if (!p.SongIds.Contains(selected.Song.Id))
+        {
+            p.SongIds.Add(selected.Song.Id);
+            Save();
+            Refresh();
+        }
     }
     // Works across the complete width of every song row, including artwork,
     // title, album, and otherwise empty cells. Do not use a stale selection.
@@ -321,8 +341,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             };
             item.Click += (_, _) =>
             {
-                if (!playlist.SongIds.Contains(song.Id)) playlist.SongIds.Add(song.Id);
-                Save(); RefreshPlaylistArtwork(); Refresh();
+                if (!playlist.SongIds.Contains(song.Id))
+                {
+                    playlist.SongIds.Add(song.Id);
+                    Save();
+                    Refresh();
+                }
             };
             add.Items.Add(item);
         }
@@ -440,6 +464,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
             stage = "Adding local song to library";
             library.Songs.Add(song);
+            // Update the visible library and playlist artwork as each import completes.
+            Refresh();
             return true;
         }
         catch (Exception ex)
@@ -711,6 +737,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         catch (HttpRequestException) { } catch (JsonException) { }
         library.Songs.Add(song);
+        Refresh();
     }
     async void Lyrics_Click(object sender, RoutedEventArgs e)
     {
