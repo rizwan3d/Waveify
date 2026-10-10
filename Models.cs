@@ -19,6 +19,8 @@ public class Song
     public string MusicBrainzRecordingId { get; set; } = "";
     public string MusicBrainzReleaseId { get; set; } = "";
     public bool Liked { get; set; }
+    public int PlayCount { get; set; }
+    public DateTime? LastPlayedUtc { get; set; }
     public int DurationSeconds { get; set; }
     public string Duration => DurationSeconds > 0 ? TimeSpan.FromSeconds(DurationSeconds).ToString(@"mm\:ss") : "—";
     public string Source => string.IsNullOrEmpty(FilePath) ? "Link" : "Local";
@@ -27,6 +29,7 @@ public class Playlist
 {
     public string Name { get; set; } = "New Playlist";
     public List<Guid> SongIds { get; set; } = new();
+    public string CoverPath { get; set; } = "";
     public override string ToString() => Name;
 }
 public class LibraryData
