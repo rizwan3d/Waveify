@@ -37,6 +37,7 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Batch import" Click="BatchImport_Click"><ui:SymbolIcon Symbol="ArrowDownload24"/></Button>
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Setup tools" Click="SetupTools_Click"><ui:SymbolIcon Symbol="Settings24"/></Button>
+                        <Button Style="{StaticResource CircleTopButton}" ToolTip="Toggle equalizer" Click="ToggleEqualizer_Click"><ui:SymbolIcon Symbol="Equalizer24"/></Button>
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Import link" Click="ImportLink_Click"><ui:SymbolIcon Symbol="Link24"/></Button>
                         <Border Width="1" Height="20" Background="#2A3345" Margin="10,0"/>
                         <Button Style="{StaticResource FlatNavButton}" Click="WindowMinimize_Click" Content="—" FontSize="16"/>
@@ -100,12 +101,12 @@
                         </StackPanel>
 
                         <StackPanel Grid.Row="3" Margin="0,18,0,0">
-                            <Button Content="Recently Added" Click="RecentlyAdded_Click" Margin="0,0,0,5"/>
-                            <Button Content="Recently Played" Click="History_Click" Margin="0,0,0,8"/>
-                            <Button Content="Most Played" Click="Stats_Click" Margin="0,0,0,8"/>
-                            <Button Content="Surprise me" Click="SurpriseMe_Click" Margin="0,0,0,5"/>
-                            <Button Content="Unplayed" Click="Unplayed_Click" Margin="0,0,0,5"/>
-                            <Button Content="Possible duplicates" Click="Duplicates_Click" Margin="0,0,0,8"/>
+                            <Button Style="{StaticResource SidebarNew}" Click="RecentlyAdded_Click" ToolTip="Recently Added"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Clock24" Margin="0,0,12,0"/><TextBlock Text="Recently Added"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="History_Click" ToolTip="Recently Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="History24" Margin="0,0,12,0"/><TextBlock Text="Recently Played"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="Stats_Click" ToolTip="Most Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ChartMultiple24" Margin="0,0,12,0"/><TextBlock Text="Most Played"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="SurpriseMe_Click" ToolTip="Surprise me"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowShuffle24" Margin="0,0,12,0"/><TextBlock Text="Surprise me"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="Unplayed_Click" ToolTip="Unplayed"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="MusicNote224" Margin="0,0,12,0"/><TextBlock Text="Unplayed"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DocumentCopy24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
                             <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
@@ -337,7 +338,15 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <StackPanel x:Name="QueuePanel" Grid.Row="3" Margin="0,24,0,0">
+                        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"><StackPanel><StackPanel x:Name="EqualizerPanel" Margin="0,14,0,10">
+                                <DockPanel Margin="0,0,0,8"><TextBlock Text="Equalizer" FontWeight="SemiBold" FontSize="14"/><CheckBox x:Name="EqualizerEnabled" DockPanel.Dock="Right" HorizontalAlignment="Right" IsChecked="True" ToolTip="Enable equalizer" Checked="EqualizerEnabled_Changed" Unchecked="EqualizerEnabled_Changed"/></DockPanel>
+                                <ComboBox x:Name="EqualizerPreset" SelectedIndex="0" Margin="0,0,0,7" SelectionChanged="EqualizerPreset_SelectionChanged" ToolTip="Equalizer preset"><ComboBoxItem Content="Flat"/><ComboBoxItem Content="Rock"/><ComboBoxItem Content="Vocal"/><ComboBoxItem Content="Electronic"/></ComboBox>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center"><Slider x:Name="EqualizerSlider" Orientation="Vertical" Height="65" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Bass"/><TextBlock Text="Bass" HorizontalAlignment="Center"/></StackPanel>
+                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center"><Slider x:Name="MidSlider" Orientation="Vertical" Height="65" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Mid"/><TextBlock Text="Mid" HorizontalAlignment="Center"/></StackPanel>
+                                    <StackPanel Grid.Column="2" HorizontalAlignment="Center"><Slider x:Name="TrebleSlider" Orientation="Vertical" Height="65" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Treble"/><TextBlock Text="Treble" HorizontalAlignment="Center"/></StackPanel>
+                                </Grid>
+                            </StackPanel><StackPanel x:Name="QueuePanel" Margin="0,8,0,0">
                             <Border Height="1" Background="#212A39" Margin="0,0,0,12"/>
                             <DockPanel Margin="0,0,0,10">
                                 <TextBlock Text="Up Next" FontSize="14" FontWeight="Bold"/>
@@ -357,7 +366,7 @@
                                 </ListView.ItemTemplate>
                             </ListView>
                             <StackPanel Orientation="Horizontal"><Button Content="Move up" Click="QueueMoveUp_Click"/><Button Content="Remove" Click="QueueRemove_Click"/></StackPanel>
-                        </StackPanel>
+                        </StackPanel></StackPanel></ScrollViewer>
                     </Grid>
                 </Border>
             </Grid>
@@ -408,7 +417,7 @@
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Style="{StaticResource PlayerButton}" ToolTip="Queue" Click="Queue_Click"><ui:SymbolIcon Symbol="TextBulletListSquare24"/></Button>
-                        <ComboBox x:Name="EqualizerPreset" Width="88" SelectionChanged="EqualizerPreset_SelectionChanged" ToolTip="EQ preset"><ComboBoxItem Content="Flat" IsSelected="True"/><ComboBoxItem Content="Rock"/><ComboBoxItem Content="Vocal"/><ComboBoxItem Content="Electronic"/></ComboBox><TextBlock Text="Bass" Foreground="White" VerticalAlignment="Center"/><Slider x:Name="EqualizerSlider" Width="55" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Bass EQ (dB)"/><TextBlock Text="Mid" Foreground="White" VerticalAlignment="Center"/><Slider x:Name="MidSlider" Width="55" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Mid EQ (dB)"/><TextBlock Text="Treble" Foreground="White" VerticalAlignment="Center"/><Slider x:Name="TrebleSlider" Width="55" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Treble EQ (dB)"/>
+                        
                         <Button x:Name="DevicePickerButton" Click="DevicePickerButton_Click" Style="{StaticResource PlayerButton}" ToolTip="Choose output device"><ui:SymbolIcon Symbol="Headphones24"/></Button>
                         <Border x:Name="OutputPickerHost" Background="#1A202B" CornerRadius="10" Padding="4" Visibility="Collapsed" Margin="6,0,6,0"><ComboBox x:Name="OutputDeviceCombo" Width="170" ToolTip="Select output device" SelectionChanged="OutputDeviceCombo_SelectionChanged"/></Border>
                         <Button Style="{StaticResource PlayerButton}" Click="RefreshOutputs_Click" ToolTip="Refresh audio devices"><ui:SymbolIcon Symbol="Speaker224"/></Button>
