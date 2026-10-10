@@ -27,6 +27,17 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - The Bass slider in the bottom player controls a low-shelf equalizer from -12 to +12 dB.
 - Keyboard shortcuts: **Space** play/pause, **Ctrl+F** search, **Ctrl+O** import files, **Ctrl+Right** next, and **Ctrl+Left** previous.
 
+## Additional controls
+
+- Toggle list and grid views above the song table.
+- The **Up Next** panel displays upcoming queue tracks; double-click to play, move tracks up, remove individual entries, or clear upcoming tracks. The bottom Queue button toggles the panel.
+- Use the playlist options menu to rename, duplicate, delete, or choose a cover image. Playlist song counts appear in the sidebar.
+- Filter the library by artist, album, genre, year, liked songs, and available local files. Applied filters are saved between launches.
+- Open **Most Played** to see play counts and last-played times.
+- The metadata editor offers to write edited fields into supported local audio files.
+- The equalizer has bass, midrange, and treble controls with Flat, Rock, Vocal, and Electronic presets.
+- Media-key events are handled when Waveify has keyboard focus; Ctrl+M toggles mute. System-wide media controls and configurable shortcuts are not yet implemented.
+
 ## Dependencies
 
 Waveify targets Windows and requires:
