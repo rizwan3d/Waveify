@@ -119,8 +119,11 @@ internal static class SoundCloudSearch
         {
             if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
                 uri.Scheme != Uri.UriSchemeHttps) continue;
+            // Reject SoundCloud API URLs that yt-dlp sometimes provides in flat
+            // results; the UI must use browsable public track permalinks.
             if (uri.Host.Equals("soundcloud.com", StringComparison.OrdinalIgnoreCase) ||
-                uri.Host.EndsWith(".soundcloud.com", StringComparison.OrdinalIgnoreCase))
+                uri.Host.Equals("www.soundcloud.com", StringComparison.OrdinalIgnoreCase) ||
+                uri.Host.Equals("m.soundcloud.com", StringComparison.OrdinalIgnoreCase))
                 return uri.AbsoluteUri;
         }
         return "";
