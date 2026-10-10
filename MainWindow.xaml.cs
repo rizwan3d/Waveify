@@ -148,7 +148,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     async Task CheckDependenciesAsync(bool manual = false)
     {
-        var missing = new[] { "yt-dlp", "deno", "sunnify", "ffmpeg", "ddgs" }.Where(name => !DependencyInstaller.IsAvailable(name)).ToList();
+        var missing = await Task.Run(() => new[] { "yt-dlp", "deno", "sunnify", "ffmpeg", "ddgs" }
+            .Where(name => !DependencyInstaller.IsAvailable(name)).ToList());
         if (missing.Count == 0)
         {
             if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify, FFmpeg and ddgs are already available.", "Waveify tools");
