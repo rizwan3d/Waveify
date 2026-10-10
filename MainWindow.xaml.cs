@@ -710,6 +710,218 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
+    void OnlineSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnlineSearch_Click(sender, new RoutedEventArgs());
+        e.Handled = true;
+    }
+
+    void OnlineSearch_Click(object sender, RoutedEventArgs e)
+    {
+        // Each provider owns its search results. No scraping or API key is needed.
+        string query = OnlineSearchBox.Text.Trim();
+        if (query.Length == 0) query = SearchBox.Text.Trim();
+        if (query.Length == 0)
+        {
+            OnlineSearchStatus.Text = "Type an artist or song name first.";
+            OnlineSearchBox.Focus();
+            return;
+        }
+
+        string encoded = Uri.EscapeDataString(query);
+        string provider = (OnlineSearchProvider.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YouTube";
+        string url = provider switch
+        {
+            "Spotify" => "https://open.spotify.com/search/" + encoded,
+            "SoundCloud" => "https://soundcloud.com/search?q=" + encoded,
+            _ => "https://www.youtube.com/results?search_query=" + encoded
+        };
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            OnlineSearchStatus.Text = $"Opened {provider} results. Copy a track or playlist URL, then click Paste.";
+        }
+        catch (Exception ex)
+        {
+            OnlineSearchStatus.Text = "Could not open the browser: " + ex.Message;
+        }
+    }
+
+    void OnlinePasteLink_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                OnlineLinkBox.Text = Clipboard.GetText().Trim();
+                OnlineSearchStatus.Text = "Link pasted. Preview it or download audio you have permission to save.";
+            }
+            else OnlineSearchStatus.Text = "Copy a link from your browser first.";
+        }
+        catch (Exception ex) { OnlineSearchStatus.Text = "Clipboard unavailable: " + ex.Message; }
+    }
+
+    static string? PublicMusicMetadataEndpoint(Uri uri)
+    {
+        string url = Uri.EscapeDataString(uri.AbsoluteUri);
+        string host = uri.Host.ToLowerInvariant();
+        if (IsHost(host, "spotify.com")) return "https://open.spotify.com/oembed?url=" + url;
+        if (IsHost(host, "soundcloud.com")) return "https://soundcloud.com/oembed?format=json&url=" + url;
+        if (IsHost(host, "youtube.com") || IsHost(host, "youtu.be"))
+            return "https://www.youtube.com/oembed?format=json&url=" + url;
+        return null;
+    }
+
+    async void OnlinePreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (!Uri.TryCreate(OnlineLinkBox.Text.Trim(), UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps)
+        {
+            OnlineSearchStatus.Text = "Paste a valid HTTPS music link to preview.";
+            return;
+        }
+        var endpoint = PublicMusicMetadataEndpoint(uri);
+        if (endpoint == null)
+        {
+            OnlineSearchStatus.Text = "Preview supports public YouTube, Spotify and SoundCloud links.";
+            return;
+        }
+        OnlineSearchStatus.Text = "Loading public track information…";
+        try
+        {
+            using var response = await http.GetAsync(endpoint);
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var root = document.RootElement;
+            var title = root.TryGetProperty("title", out var name) ? name.GetString() : null;
+            var artist = root.TryGetProperty("author_name", out var author) ? author.GetString() : null;
+            OnlineSearchStatus.Text = (title ?? "Track") + (string.IsNullOrWhiteSpace(artist) ? "" : " — " + artist);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        {
+            OnlineSearchStatus.Text = "Preview unavailable for this link. You can still try an authorized download.";
+        }
+    }
+
+    static readonly string[] DirectAudioExtensions = { ".mp3", ".m4a", ".flac", ".wav", ".aac", ".wma" };
+
+    async Task<int> DownloadDirectMusicFileAsync(Uri uri)
+    {
+        string extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
+        string directory = Path.Combine(LibraryStore.Folder, "discovery-staging");
+        Directory.CreateDirectory(directory);
+        string file = Path.Combine(directory, Guid.NewGuid().ToString("N") + extension);
+        try
+        {
+            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            const long maxBytes = 150_000_000;
+            if (response.Content.Headers.ContentLength > maxBytes)
+                throw new InvalidOperationException("Audio file exceeds the 150 MB limit.");
+            await using var source = await response.Content.ReadAsStreamAsync();
+            await using (var outputFile = File.Create(file))
+            {
+                byte[] buffer = new byte[81920];
+                long total = 0;
+                int count;
+                while ((count = await source.ReadAsync(buffer)) > 0)
+                {
+                    total += count;
+                    if (total > maxBytes) throw new InvalidOperationException("Audio file exceeds the 150 MB limit.");
+                    await outputFile.WriteAsync(buffer.AsMemory(0, count));
+                }
+            }
+            if (!ImportLocal(file, uri.AbsoluteUri)) return 0;
+            await EnrichImportedAsync();
+            return 1;
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); }
+            catch (IOException ex) { Debug.WriteLine("Could not delete staging file: " + ex.Message); }
+        }
+    }
+
+    async void OnlineDownload_Click(object sender, RoutedEventArgs e)
+    {
+        string url = OnlineLinkBox.Text.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            OnlineSearchStatus.Text = "Paste a valid HTTPS track, playlist or audio-file URL.";
+            return;
+        }
+
+        string host = uri.Host.ToLowerInvariant();
+        bool spotify = IsHost(host, "spotify.com");
+        bool video = IsHost(host, "youtube.com") || IsHost(host, "youtu.be") || IsHost(host, "soundcloud.com");
+        bool directAudio = DirectAudioExtensions.Contains(Path.GetExtension(uri.AbsolutePath), StringComparer.OrdinalIgnoreCase);
+        if (!spotify && !video && !directAudio)
+        {
+            OnlineSearchStatus.Text = "Supported links: YouTube, Spotify, SoundCloud, or direct HTTPS audio files.";
+            return;
+        }
+
+        if (MessageBox.Show(this,
+            "Download only music that you own or have permission to save. Continue?",
+            "Authorized music download", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+        OnlineDownloadButton.IsEnabled = false;
+        var progressWindow = new SongDownloadProgressWindow(this, 1);
+        progressWindow.Show();
+        int imported = 0;
+        try
+        {
+            if (directAudio && !spotify && !video)
+                imported = await DownloadDirectMusicFileAsync(uri);
+            else
+            {
+                Action<string> report = status => Dispatcher.Invoke(() =>
+                {
+                    OnlineSearchStatus.Text = status;
+                    SubHeading.Text = status;
+                });
+                var files = spotify
+                    ? await SunnifyDownloader.DownloadAsync(url, report, progressWindow.Report)
+                    : await AuthorizedDownloader.DownloadAsync(url, report, progressWindow.Report);
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        if (ImportLocal(file, url))
+                        {
+                            imported++;
+                            await EnrichImportedAsync();
+                        }
+                    }
+                    finally
+                    {
+                        if (!spotify)
+                        {
+                            try { if (File.Exists(file)) File.Delete(file); }
+                            catch (IOException ex) { Debug.WriteLine("Could not delete staging file: " + ex.Message); }
+                        }
+                    }
+                }
+            }
+            Save();
+            Refresh();
+            OnlineSearchStatus.Text = $"Imported {imported} track(s) into your offline library.";
+            MessageBox.Show(this, $"Imported {imported} track(s).", "Download complete");
+        }
+        catch (Exception ex)
+        {
+            OnlineSearchStatus.Text = "Download failed: " + ex.Message;
+            MessageBox.Show(this, "Unable to import this link: " + ex.Message, "Download failed",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            progressWindow.Finish(1);
+            OnlineDownloadButton.IsEnabled = true;
+        }
+    }
+
     async void ImportLink_Click(object sender, RoutedEventArgs e)
     {
         var input = PromptDialog.Ask(this, "Import music link", "Paste a Spotify, YouTube, SoundCloud or direct HTTPS audio link:");
