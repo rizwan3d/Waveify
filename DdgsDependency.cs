@@ -90,7 +90,7 @@ internal static class DdgsDependency
         try
         {
             progress?.Report(new("ddgs", "Downloading ddgs and dependencies from PyPI"));
-            var start = BuildStartInfo(runtime.Value);
+            var start = BuildStartInfo(runtime);
             foreach (var part in new[]
             {
                 "-m", "pip", "install", "--disable-pip-version-check",
@@ -126,7 +126,7 @@ internal static class DdgsDependency
             }
 
             progress?.Report(new("ddgs", "Checking installed Python package"));
-            var test = BuildStartInfo(runtime.Value, staging);
+            var test = BuildStartInfo(runtime, staging);
             test.ArgumentList.Add("-c");
             test.ArgumentList.Add("from ddgs import DDGS");
             if (!TryRunCheck(test, 10000))
