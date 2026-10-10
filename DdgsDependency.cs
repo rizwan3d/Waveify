@@ -19,7 +19,7 @@ internal static class DdgsDependency
     {
         foreach (var runtime in new[] { new PythonRuntime("py", true), new PythonRuntime("python", false) })
         {
-            using var check = BuildStartInfo(runtime);
+            var check = BuildStartInfo(runtime);
             check.ArgumentList.Add("-c");
             check.ArgumentList.Add("import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)");
             if (TryRunCheck(check, 3000)) return runtime;
@@ -69,7 +69,7 @@ internal static class DdgsDependency
     {
         var python = FindPython();
         if (python == null) return false;
-        using var check = BuildStartInfo(python.Value);
+        var check = BuildStartInfo(python.Value);
         check.ArgumentList.Add("-c");
         check.ArgumentList.Add("from ddgs import DDGS");
         return TryRunCheck(check, 5000);
