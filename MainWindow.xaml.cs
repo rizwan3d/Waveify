@@ -148,19 +148,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     async Task CheckDependenciesAsync(bool manual = false)
     {
-        var missing = new[] { "yt-dlp", "deno", "sunnify", "ffmpeg" }.Where(name => !DependencyInstaller.IsAvailable(name)).ToList();
+        var missing = new[] { "yt-dlp", "deno", "sunnify", "ffmpeg", "ddgs" }.Where(name => !DependencyInstaller.IsAvailable(name)).ToList();
         if (missing.Count == 0)
         {
-            if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify and FFmpeg are already available.", "Waveify tools");
+            if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify, FFmpeg and ddgs are already available.", "Waveify tools");
             return;
         }
         var answer = MessageBox.Show(this,
             "Missing optional tools: " + string.Join(", ", missing) + ".\n\n" +
-            "Download their Windows executables from the official GitHub releases into your local Waveify tools folder? " +
-            "Waveify verifies release SHA-256 checksums before installing. These are third-party programs. " +
-            "You can decline and still use the local music player.\n\n" +
-            "FFmpeg is installed from an official Windows build. Large releases may take time and disk space.",
-            "Set up download tools", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Install these optional dependencies in your local Waveify tools folder? " +
+            "The executable tools come from official GitHub releases with SHA-256 verification. " +
+            "ddgs and its Python dependencies come from PyPI using pip and are kept in Waveify's tools folder. " +
+            "ddgs requires Python 3.10+ with pip already installed; if Python is missing, you will receive setup instructions.\n\n" +
+            "Third-party tools may use network access and disk space. You may decline and still play local music.",
+            "Set up Waveify tools", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
         var setup = new ToolSetupProgressWindow { Owner = this };
         setup.Show();
