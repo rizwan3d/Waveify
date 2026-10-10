@@ -1,0 +1,1148 @@
+using Microsoft.Win32;
+using NAudio.Wave;
+using NAudio.CoreAudioApi;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+namespace Waveify;
+
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
+{
+    readonly LibraryData library = LibraryStore.Load();
+    readonly PlayerSettings playerSettings = PlayerSettings.Load();
+    bool initializingAudioSettings = true;
+    DateTime lastSettingsSave = DateTime.MinValue;
+
+    readonly ObservableCollection<SongRow> rows = new();
+    readonly ObservableCollection<PlaylistRow> playlistRows = new();
+    readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(25) };
+    readonly MetadataEnricher metadataEnricher = new();
+    IWavePlayer? output;
+    MMDeviceEnumerator? audioDevices;
+    readonly List<MMDevice> availableOutputs = new();
+    string? selectedOutputId;
+    bool updatingProgress;
+    bool refreshingPlaylistRows;
+    AudioFileReader? reader;
+    Song? current;
+    List<Song> queue = new();
+    Playlist? selectedPlaylist;
+    bool likedOnly, shuffle, dragging;
+    int repeatMode; // 0: off, 1: playlist, 2: one
+    int playbackGeneration;
+    bool restoredPositionConsumed;
+    readonly Random random = new();
+    public MainWindow()
+    {
+        InitializeComponent();
+        MusicOrganizer.SetCustomRoot(playerSettings.MusicLibraryPath);
+        Volume.Value = playerSettings.Volume;
+        selectedOutputId = playerSettings.OutputDeviceId;
+        SongList.ItemsSource = rows;
+        PlaylistList.ItemsSource = playlistRows;
+        timer.Tick += (_, _) => UpdateProgress();
+        timer.Start();
+        Refresh();
+        RefreshAudioDevices();
+        initializingAudioSettings = false;
+        repeatMode = Math.Clamp(playerSettings.RepeatMode, 0, 2);
+        UpdateRepeatButton();
+        UpdateShuffleButtons();
+        UpdateCurrentLikeButton();
+        Loaded += MainWindow_Loaded;
+        Closed += (_, _) => { SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
+    }
+    async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        await RescanLibraryAsync(false);
+        RestoreLastTrack();
+        await CheckDependenciesAsync();
+    }
+    void RestoreLastTrack()
+    {
+        if (playerSettings.LastTrackId is not Guid id) return;
+        var song = library.Songs.FirstOrDefault(x => x.Id == id && File.Exists(x.FilePath));
+        if (song == null) return;
+        // Display the last song without starting audio automatically.
+        current = song;
+        NowTitle.Text = song.Title;
+        NowArtist.Text = song.Artist;
+        NowArtwork.Source = LoadArtwork(song);
+        UpdateCurrentLikeButton();
+        queue = library.Songs.Where(x => File.Exists(x.FilePath)).ToList();
+        Elapsed.Text = FormatPlaybackTime(TimeSpan.FromSeconds(Math.Max(0, playerSettings.LastPositionSeconds)));
+        Total.Text = FormatPlaybackTime(TimeSpan.FromSeconds(Math.Max(0, song.DurationSeconds)));
+        Progress.Value = song.DurationSeconds > 0
+            ? Math.Clamp(playerSettings.LastPositionSeconds / song.DurationSeconds * 100, 0, 100) : 0;
+    }
+
+    async void SetupTools_Click(object sender, RoutedEventArgs e) => await CheckDependenciesAsync(true);
+
+    async Task CheckDependenciesAsync(bool manual = false)
+    {
+        var missing = new[] { "yt-dlp", "deno", "sunnify", "ffmpeg" }.Where(name => !DependencyInstaller.IsAvailable(name)).ToList();
+        if (missing.Count == 0)
+        {
+            if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify and FFmpeg are already available.", "Waveify tools");
+            return;
+        }
+        var answer = MessageBox.Show(this,
+            "Missing optional tools: " + string.Join(", ", missing) + ".\n\n" +
+            "Download their Windows executables from the official GitHub releases into your local Waveify tools folder? " +
+            "Waveify verifies release SHA-256 checksums before installing. These are third-party programs. " +
+            "You can decline and still use the local music player.\n\n" +
+            "FFmpeg is installed from an official Windows build. Large releases may take time and disk space.",
+            "Set up download tools", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return;
+        var setup = new ToolSetupProgressWindow { Owner = this };
+        setup.Show();
+        try
+        {
+            for (int i = 0; i < missing.Count; i++)
+            {
+                if (setup.Cancellation.IsCancellationRequested) break;
+                string name = missing[i];
+                setup.SetCurrentTool(i + 1, missing.Count, name);
+                try
+                {
+                    var reporter = new Progress<InstallProgress>(setup.Report);
+                    await DependencyInstaller.InstallAsync(name, reporter, setup.Cancellation.Token);
+                    setup.Report(new InstallProgress(name, "Installed"));
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    setup.Report(new InstallProgress(name, "Failed: " + ex.Message));
+                    MessageBox.Show(setup, $"Could not install {name}: {ex.Message}", "Dependency setup", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+        finally { setup.Finish(); }
+        Refresh();
+    }
+    async void RescanLibrary_Click(object sender, RoutedEventArgs e) => await RescanLibraryAsync(true);
+
+    async Task RescanLibraryAsync(bool showResult)
+    {
+        try
+        {
+            var removed = RemoveInvalidLibrarySongs();
+            var paths = library.Songs.Select(s => s.FilePath).ToArray();
+            var missing = await Task.Run(() => LibraryRecovery.FindMissing(paths));
+            foreach (var song in missing) library.Songs.Add(song);
+            if (missing.Count > 0 || removed > 0) Save();
+            // Always show the full library after a recovery scan, not a playlist/search filter.
+            selectedPlaylist = null;
+            likedOnly = false;
+            PlaylistList.SelectedItem = null;
+            SearchBox.Clear();
+            Refresh();
+            if (showResult)
+                MessageBox.Show(this,
+                    $"Found {missing.Count} previously unlisted songs.\nRemoved {removed} invalid library entries.\n\nYour files were not moved or deleted.",
+                    "Rescan library");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Unable to rescan music folders: " + ex.Message, "Waveify", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    void Save() => LibraryStore.Save(library);
+    bool RemoveSongFromLibrary(Song song)
+    {
+        bool removed = library.Songs.Remove(song);
+        foreach (var p in library.Playlists) p.SongIds.Remove(song.Id);
+        if (current?.Id == song.Id) { Stop(); current = null; }
+        return removed;
+    }
+
+    int RemoveInvalidLibrarySongs()
+    {
+        var invalid = library.Songs
+            .Where(song => string.IsNullOrWhiteSpace(song.FilePath) || !File.Exists(song.FilePath))
+            .ToList();
+        foreach (var song in invalid) RemoveSongFromLibrary(song);
+        return invalid.Count;
+    }
+
+    void RefreshPlaylistArtwork()
+    {
+        if (refreshingPlaylistRows) return;
+        refreshingPlaylistRows = true;
+        try
+        {
+            var selected = selectedPlaylist;
+            playlistRows.Clear();
+            foreach (var p in library.Playlists)
+            {
+                var first = p.SongIds.Select(id => library.Songs.FirstOrDefault(s => s.Id == id))
+                    .FirstOrDefault(song => song != null);
+                playlistRows.Add(new PlaylistRow(p, first == null ? null : ArtworkResolver.Load(first)));
+            }
+            if (selected != null)
+                PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, selected));
+        }
+        finally { refreshingPlaylistRows = false; }
+    }
+
+    void Refresh()
+    {
+        RefreshPlaylistArtwork();
+        IEnumerable<Song> songs = library.Songs;
+        if (selectedPlaylist != null) songs = songs.Where(s => selectedPlaylist.SongIds.Contains(s.Id));
+        if (likedOnly) songs = songs.Where(s => s.Liked);
+        var search = SearchBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(search)) songs = songs.Where(s => (s.Title + " " + s.Artist + " " + s.Album).Contains(search, StringComparison.OrdinalIgnoreCase));
+        var previousId = (SongList.SelectedItem as SongRow)?.Song.Id;
+        rows.Clear();
+        int n = 1;
+        foreach (var song in songs) rows.Add(new SongRow(song, n++));
+        if (previousId != null) SongList.SelectedItem = rows.FirstOrDefault(s => s.Song.Id == previousId);
+        HomeShelves.Visibility = Visibility.Collapsed;
+        if (HomeShelves.Visibility == Visibility.Visible)
+        {
+            var valid = library.Songs.Where(x => !string.IsNullOrWhiteSpace(x.FilePath) && System.IO.File.Exists(x.FilePath)).ToList();
+            ArtistShelves.ItemsSource = valid.GroupBy(x => string.IsNullOrWhiteSpace(x.Artist) ? "Unknown artist" : x.Artist, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
+            GenreShelves.ItemsSource = valid.GroupBy(x => string.IsNullOrWhiteSpace(x.Genre) ? "Unknown genre" : x.Genre, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
+        }
+        Heading.Text = selectedPlaylist?.Name ?? (likedOnly ? "Liked Songs" : "k");
+        SubHeading.Text = $"{rows.Count} tracks · Double-click a local track to play";
+    }
+    void ShelfTrack_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2 && sender is FrameworkElement element && element.DataContext is SongRow row)
+            StartSong(row.Song);
+    }
+    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
+    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
+    void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (rows != null) Refresh(); }
+    void PlaylistList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    { if (!refreshingPlaylistRows && PlaylistList.SelectedItem is PlaylistRow { Playlist: var p } && !ReferenceEquals(selectedPlaylist, p)) { selectedPlaylist = p; likedOnly = false; Refresh(); } }
+    void CreatePlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        var name = PromptDialog.Ask(this, "Create playlist", "Playlist name:");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var p = new Playlist { Name = name.Trim() };
+        library.Playlists.Add(p);
+        RefreshPlaylistArtwork(); PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, p)); Save(); Refresh();
+    }
+    void AddToPlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        if (SongList.SelectedItem is not SongRow selected) { MessageBox.Show("Select a track first."); return; }
+        if (library.Playlists.Count == 0) { MessageBox.Show("Create a playlist first."); return; }
+        string? name = PromptDialog.Ask(this, "Add to playlist", "Enter an existing playlist name:", library.Playlists[0].Name);
+        var p = library.Playlists.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (p == null) { MessageBox.Show("Playlist not found."); return; }
+        if (!p.SongIds.Contains(selected.Song.Id)) p.SongIds.Add(selected.Song.Id);
+        Save(); Refresh();
+    }
+    // Works across the complete width of every song row, including artwork,
+    // title, album, and otherwise empty cells. Do not use a stale selection.
+    void SongList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var item = FindSongRow(e.OriginalSource as DependencyObject);
+        if (item != null) item.IsSelected = true;
+    }
+
+    static ListViewItem? FindSongRow(DependencyObject? node)
+    {
+        while (node != null)
+        {
+            if (node is ListViewItem item) return item;
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return null;
+    }
+
+    void SongList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var hit = Mouse.DirectlyOver as DependencyObject;
+        var container = FindSongRow(hit);
+        if (container?.DataContext is not SongRow selected)
+        {
+            e.Handled = true;
+            return;
+        }
+        container.IsSelected = true;
+        // Attach to that row rather than the entire ListView.
+        container.ContextMenu = BuildSongMenu(selected.Song);
+        SongList.ContextMenu = null;
+        container.ContextMenu.PlacementTarget = container;
+        container.ContextMenu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    // Shared by Home artist/genre shelves, featured cards, and Up Next.
+    // The menu belongs to the clicked song card, not a stale ListView selection.
+    void SongCard_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement element || element.DataContext is not SongRow row)
+            return;
+
+        var menu = BuildSongMenu(row.Song);
+        menu.PlacementTarget = element;
+        menu.Placement = PlacementMode.MousePoint;
+        element.ContextMenu = menu;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    ContextMenu BuildSongMenu(Song song)
+    {
+        var menu = new ContextMenu();
+        var like = new MenuItem { Header = song.Liked ? "♥ Unlike song" : "♡ Like song" };
+        like.Click += (_, _) => { ToggleLike(song); };
+        menu.Items.Add(like);
+        menu.Items.Add(new Separator());
+        var add = new MenuItem { Header = "Add to playlist" };
+        if (library.Playlists.Count == 0)
+            add.Items.Add(new MenuItem { Header = "No playlists yet", IsEnabled = false });
+        foreach (var playlist in library.Playlists)
+        {
+            var item = new MenuItem
+            {
+                Header = playlist.Name,
+                IsCheckable = true,
+                IsChecked = playlist.SongIds.Contains(song.Id)
+            };
+            item.Click += (_, _) =>
+            {
+                if (!playlist.SongIds.Contains(song.Id)) playlist.SongIds.Add(song.Id);
+                Save(); RefreshPlaylistArtwork(); Refresh();
+            };
+            add.Items.Add(item);
+        }
+        menu.Items.Add(add);
+        menu.Items.Add(new Separator());
+        var remove = new MenuItem { Header = "Remove from library" };
+        remove.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, $"Remove '{song.Title}' from your library? (Audio files will not be deleted.)",
+                    "Remove track", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            RemoveSongFromLibrary(song);
+            Save();
+            Refresh();
+        };
+        menu.Items.Add(remove);
+        return menu;
+    }
+
+    void Like_Click(object sender, RoutedEventArgs e)
+    { if (SongList.SelectedItem is SongRow row) ToggleLike(row.Song); }
+    void CurrentLike_Click(object sender, RoutedEventArgs e)
+    {
+        if (current == null) return;
+        ToggleLike(current);
+    }
+    void ToggleLike(Song song)
+    {
+        song.Liked = !song.Liked;
+        Save();
+        Refresh();
+        UpdateCurrentLikeButton();
+    }
+    void UpdateCurrentLikeButton()
+    {
+        bool liked = current?.Liked == true;
+        BottomLikeButton.IsEnabled = current != null;
+        BottomLikeButton.ToolTip = current == null
+            ? "No song playing"
+            : liked ? "Unlike current song" : "Like current song";
+        BottomLikeIcon.Foreground = liked
+            ? (System.Windows.Media.Brush)FindResource("WaveAccent")
+            : System.Windows.Media.Brushes.White;
+    }
+    void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (SongList.SelectedItem is not SongRow row) return;
+        if (MessageBox.Show($"Remove '{row.Title}' from your library? (Audio files will not be deleted.)", "Remove track", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        RemoveSongFromLibrary(row.Song);
+        Save(); Refresh();
+    }
+    async void AddFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Title = "Import audio files", Filter = "Audio files|*.mp3;*.flac;*.wav;*.aac;*.m4a;*.wma;*.aiff|All files|*.*", Multiselect = true };
+        if (dialog.ShowDialog() != true) return;
+        int count = 0;
+        foreach (string file in dialog.FileNames)
+        {
+            if (!ImportLocal(file)) continue;
+            count++;
+            await EnrichImportedAsync();
+        }
+        Save(); Refresh(); MessageBox.Show($"Added {count} tracks.");
+    }
+    bool ImportLocal(string file, string? sourceUrl = null)
+    {
+        // yt-dlp has already finished at this point. Do not confuse a library
+        // or tag error with a failed network download.
+        string stage = "Locating downloaded audio";
+        try
+        {
+            file = Path.GetFullPath(file);
+            if (!File.Exists(file))
+                throw new FileNotFoundException("Downloader output disappeared before library import", file);
+            if (library.Songs.Any(s => !string.IsNullOrWhiteSpace(s.FilePath) &&
+                string.Equals(Path.GetFullPath(s.FilePath), file, StringComparison.OrdinalIgnoreCase))) return false;
+
+            var song = new Song
+            {
+                FilePath = file, SourceUrl = sourceUrl ?? "", DateAddedUtc = DateTime.UtcNow,
+                Title = Path.GetFileNameWithoutExtension(file)
+            };
+            stage = "Reading embedded song tags";
+            try
+            {
+                using var tag = TagLib.File.Create(file);
+                if (!string.IsNullOrWhiteSpace(tag.Tag.Title)) song.Title = tag.Tag.Title;
+                song.Artist = tag.Tag.FirstPerformer ?? "Unknown artist";
+                song.Album = tag.Tag.Album ?? "";
+                song.Genre = tag.Tag.FirstGenre ?? "";
+                song.DurationSeconds = (int)tag.Properties.Duration.TotalSeconds;
+                if (tag.Tag.Pictures.Length > 0 && tag.Tag.Pictures[0].Data.Count > 0)
+                {
+                    var artDirectory = Path.Combine(LibraryStore.Folder, "artwork");
+                    Directory.CreateDirectory(artDirectory);
+                    song.ArtworkPath = Path.Combine(artDirectory, song.Id + ".jpg");
+                    File.WriteAllBytes(song.ArtworkPath, tag.Tag.Pictures[0].Data.Data);
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Broken/unsupported tags must not discard a successfully
+                // downloaded playable MP3.
+                Debug.WriteLine("Tag reading skipped: " + ex);
+            }
+
+            stage = "Copying audio into managed music library";
+            song.FilePath = MusicOrganizer.Organize(file, song);
+            if (!File.Exists(song.FilePath))
+                throw new IOException("Managed audio file does not exist after copying: " + song.FilePath);
+
+            stage = "Saving album artwork";
+            try { MusicOrganizer.SaveAlbumArtwork(song); }
+            catch (IOException ex) { Debug.WriteLine("Album artwork skipped: " + ex); }
+            catch (UnauthorizedAccessException ex) { Debug.WriteLine("Album artwork skipped: " + ex); }
+
+            stage = "Adding local song to library";
+            library.Songs.Add(song);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            throw new IOException($"Local import failed while {stage}. Source: '{file}'. {ex.Message}", ex);
+        }
+    }
+    async Task EnrichImportedAsync()
+    {
+        var song = library.Songs.LastOrDefault();
+        if (song == null || !File.Exists(song.FilePath)) return;
+        try
+        {
+            SubHeading.Text = $"Looking up metadata: {song.Title}…";
+            if (await metadataEnricher.EnrichAsync(song))
+            {
+                // Keep the audio at its current path to avoid changing paths during playback.
+                Save(); Refresh();
+            }
+        }
+        catch (Exception ex) { Debug.WriteLine("Metadata enrichment skipped: " + ex.Message); }
+    }
+
+    async void EnrichMetadata_Click(object sender, RoutedEventArgs e)
+    {
+        var tracks = SongList.SelectedItem is SongRow selected
+            ? new List<Song> { selected.Song }
+            : library.Songs.Where(x => File.Exists(x.FilePath)).ToList();
+        if (tracks.Count == 0) { MessageBox.Show("No local songs to enrich."); return; }
+        if (MessageBox.Show(this, $"Look up metadata for {tracks.Count} local song(s)? Existing tags will be preserved.",
+            "Enrich metadata", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        int matched = 0, failed = 0;
+        foreach (var song in tracks)
+        {
+            try
+            {
+                SubHeading.Text = $"Checking metadata: {song.Title}…";
+                if (await metadataEnricher.EnrichAsync(song)) matched++;
+            }
+            catch (Exception ex) { failed++; Debug.WriteLine(ex); }
+            Save();
+        }
+        Refresh();
+        MessageBox.Show(this, $"Matched {matched} of {tracks.Count} songs. Errors: {failed}. Uncertain matches were skipped.", "Metadata enrichment");
+    }
+
+    void OrganizeLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        // Close playback handles so Windows can relocate/copy currently playing files.
+        Stop();
+        int organized = 0, missing = 0;
+        foreach (var song in library.Songs.Where(s => !string.IsNullOrWhiteSpace(s.FilePath)))
+        {
+            if (!File.Exists(song.FilePath)) { missing++; continue; }
+            try
+            {
+                var oldPath = song.FilePath;
+                song.FilePath = MusicOrganizer.Organize(oldPath, song);
+                MusicOrganizer.SaveAlbumArtwork(song);
+                organized++;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not organize '{song.Title}': {ex.Message}");
+            }
+        }
+        Save(); Refresh();
+        MessageBox.Show($"Organized {organized} tracks into {MusicOrganizer.Root}. Missing files: {missing}. Original files were not deleted.");
+    }
+
+    void MusicFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Choose where Waveify stores imported MP3s",
+            InitialDirectory = Directory.Exists(MusicOrganizer.Root)
+                ? MusicOrganizer.Root
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            Directory.CreateDirectory(dialog.FolderName);
+            MusicOrganizer.SetCustomRoot(dialog.FolderName);
+            playerSettings.MusicLibraryPath = MusicOrganizer.Root;
+            playerSettings.Save();
+            MessageBox.Show(this,
+                "Future imports and Sunnify/yt-dlp downloads will be stored in:\n\n" + MusicOrganizer.Root +
+                "\n\nExisting library files will stay where they are unless you organize them again.",
+                "Waveify music folder");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            MessageBox.Show(this, "Could not use that folder: " + ex.Message, "Waveify music folder",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    async void ImportLink_Click(object sender, RoutedEventArgs e)
+    {
+        var input = PromptDialog.Ask(this, "Import music link", "Paste a Spotify, YouTube, SoundCloud or direct HTTPS audio link:");
+        if (string.IsNullOrWhiteSpace(input)) return;
+        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        { MessageBox.Show("Enter a valid HTTPS link."); return; }
+        try
+        {
+            if (IsHost(uri.Host.ToLowerInvariant(), "spotify.com"))
+            {
+                if (MessageBox.Show("Only download music you own or have permission to save. Continue using Sunnify?", "Authorized download", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                var progressWindow = new SongDownloadProgressWindow(this, 1);
+                progressWindow.Show();
+                IReadOnlyList<string> files;
+                try { files = await SunnifyDownloader.DownloadAsync(input, status => Dispatcher.Invoke(() => SubHeading.Text = status), progressWindow.Report); }
+                finally { progressWindow.Finish(1); }
+                int count = 0;
+                foreach (var file in files) if (ImportLocal(file, input)) { count++; await EnrichImportedAsync(); }
+                Save(); Refresh();
+                MessageBox.Show($"Imported {count} tracks into your offline Waveify library.");
+                return;
+            }
+            string host = uri.Host.ToLowerInvariant();
+            if (IsHost(host, "youtube.com") || IsHost(host, "youtu.be") || IsHost(host, "soundcloud.com") || IsHost(host, "spotify.com"))
+            {
+                // Public oEmbed is used only for optional display metadata; no protected audio is extracted.
+                string endpoint = IsHost(host, "spotify.com") ? "https://open.spotify.com/oembed?url=" + Uri.EscapeDataString(input)
+                  : IsHost(host, "soundcloud.com") ? "https://soundcloud.com/oembed?format=json&url=" + Uri.EscapeDataString(input)
+                  : "https://www.youtube.com/oembed?format=json&url=" + Uri.EscapeDataString(input);
+                var song = new Song { Title = input, SourceUrl = input, Artist = "Online link" };
+                try
+                {
+                    using var response = await http.GetAsync(endpoint);
+                    response.EnsureSuccessStatusCode();
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    var root = document.RootElement;
+                    if (root.TryGetProperty("title", out var title)) song.Title = title.GetString() ?? song.Title;
+                    if (root.TryGetProperty("author_name", out var artist)) song.Artist = artist.GetString() ?? song.Artist;
+                    if (root.TryGetProperty("thumbnail_url", out var cover)) song.ArtworkUrl = cover.GetString() ?? "";
+                }
+                catch (HttpRequestException) { } catch (JsonException) { }
+                library.Songs.Add(song); Save(); Refresh();
+                MessageBox.Show("Added as an online link with available metadata. Double-click it to open the original platform. This link was added as an online bookmark.");
+            }
+            else if (new[] { ".mp3", ".flac", ".wav", ".m4a", ".aac", ".wma" }.Contains(Path.GetExtension(uri.AbsolutePath).ToLowerInvariant()))
+            {
+                if (MessageBox.Show("Only download audio you own or have permission to save. Do you have permission?", "Authorized download", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                var folder = Path.Combine(LibraryStore.Folder, "staging"); Directory.CreateDirectory(folder);
+                string extension = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
+                string filename = Path.Combine(folder, Guid.NewGuid().ToString("N") + extension);
+                try
+                {
+                    using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                    response.EnsureSuccessStatusCode();
+                    if (response.Content.Headers.ContentLength is > 150_000_000) throw new InvalidOperationException("File exceeds the 150 MB size limit.");
+                    await using var source = await response.Content.ReadAsStreamAsync();
+                    await using var target = File.Create(filename);
+                    byte[] buffer = new byte[81920]; long total = 0; int read;
+                    while ((read = await source.ReadAsync(buffer)) > 0)
+                    { total += read; if (total > 150_000_000) throw new InvalidOperationException("File exceeds the 150 MB size limit."); await target.WriteAsync(buffer.AsMemory(0, read)); }
+                    target.Close();
+                    bool imported = ImportLocal(filename, input);
+                    if (imported) await EnrichImportedAsync();
+                    File.Delete(filename); // Finished copy: keep only managed library version.
+                    Save(); Refresh();
+                    MessageBox.Show(imported ? $"Downloaded and organized in {MusicOrganizer.Root}" : "The song is already in your library.");
+                }
+                catch { if (File.Exists(filename)) File.Delete(filename); throw; }
+            }
+            else MessageBox.Show("Supported: Spotify, YouTube and SoundCloud links for bookmarks/metadata; direct HTTPS audio-file URLs for authorized downloads.");
+        }
+        catch (Exception ex) { MessageBox.Show("Import failed: " + ex.Message); }
+    }
+    async void BatchImport_Click(object sender, RoutedEventArgs e)
+    {
+        var urls = BatchImportDialog.Ask(this);
+        if (urls == null || urls.Length == 0) return;
+        if (MessageBox.Show("Download only audio that you own or are authorized to save. Continue with the selected URLs?", "Permissions", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        BatchButtonState(false);
+        var progressWindow = new SongDownloadProgressWindow(this, urls.Length);
+        progressWindow.Show();
+        int completedUrls = 0;
+        int saved = 0;
+        var problems = new List<string>();
+        try
+        {
+            foreach (var url in urls)
+            {
+                progressWindow.SetBatch(completedUrls, urls.Length, url);
+                try
+                {
+                    if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https")
+                        throw new InvalidOperationException("Only HTTPS URLs are allowed.");
+                    var host = uri.Host.ToLowerInvariant();
+                    if (IsHost(host, "spotify.com"))
+                    {
+                        var files = await SunnifyDownloader.DownloadAsync(url, status => Dispatcher.Invoke(() => SubHeading.Text = status), progressWindow.Report);
+                        foreach (var file in files)
+                        {
+                            if (ImportLocal(file, url)) { saved++; await EnrichImportedAsync(); }
+                        }
+                        continue;
+                    }
+                    if (IsHost(host, "youtube.com") || IsHost(host, "youtu.be") || IsHost(host, "soundcloud.com"))
+                    {
+                        var files = await AuthorizedDownloader.DownloadAsync(url, status => Dispatcher.Invoke(() => SubHeading.Text = status), progressWindow.Report);
+                        foreach (var file in files)
+                        {
+                            try
+                            {
+                                if (ImportLocal(file, url)) { saved++; await EnrichImportedAsync(); }
+                            }
+                            finally { try { File.Delete(file); } catch (IOException) { } }
+                        }
+                        continue;
+                    }
+                    if (new[] { ".mp3", ".m4a", ".flac", ".wav", ".aac" }.Contains(Path.GetExtension(uri.AbsolutePath).ToLowerInvariant()))
+                    {
+                        var stage = Path.Combine(LibraryStore.Folder, "batch-staging");
+                        Directory.CreateDirectory(stage);
+                        var file = Path.Combine(stage, Guid.NewGuid().ToString("N") + Path.GetExtension(uri.AbsolutePath).ToLowerInvariant());
+                        try
+                        {
+                            using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                            response.EnsureSuccessStatusCode();
+                            if (response.Content.Headers.ContentLength > 150_000_000) throw new InvalidOperationException("File too large.");
+                            await using var input = await response.Content.ReadAsStreamAsync();
+                            await using (var outputFile = File.Create(file))
+                            {
+                                byte[] buffer = new byte[81920]; long total = 0; int n;
+                                while ((n = await input.ReadAsync(buffer)) > 0)
+                                {
+                                    total += n;
+                                    if (total > 150_000_000) throw new InvalidOperationException("File too large.");
+                                    await outputFile.WriteAsync(buffer.AsMemory(0, n));
+                                }
+                            }
+                            if (ImportLocal(file, url)) { saved++; await EnrichImportedAsync(); }
+                        }
+                        finally { if (File.Exists(file)) File.Delete(file); }
+                        continue;
+                    }
+                    throw new NotSupportedException("Only supported music providers and direct audio URLs are accepted.");
+                }
+                catch (Exception ex) { problems.Add(url + ": " + ex.Message); }
+                finally { completedUrls++; }
+                Save(); Refresh();
+            }
+        }
+        finally { progressWindow.Finish(completedUrls); BatchButtonState(true); Refresh(); }
+        MessageBox.Show($"Imported {saved} playable files.\n" +
+            (problems.Count > 0 ? "\nIssues:\n" + string.Join("\n", problems.Take(10)) : ""), "Batch import complete");
+    }
+    void BatchButtonState(bool enabled) => SubHeading.Text = enabled ? "Batch import finished · Local tracks are playable offline" : "Batch import in progress…";
+
+    async Task AddOnlineBookmarkAsync(string url, string endpoint)
+    {
+        if (library.Songs.Any(x => x.SourceUrl == url)) return;
+        var song = new Song { SourceUrl = url, Title = url, Artist = "Online link" };
+        try
+        {
+            using var response = await http.GetAsync(endpoint);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            if (root.TryGetProperty("title", out var name)) song.Title = name.GetString() ?? song.Title;
+            if (root.TryGetProperty("author_name", out var artist)) song.Artist = artist.GetString() ?? song.Artist;
+            if (root.TryGetProperty("thumbnail_url", out var cover)) song.ArtworkUrl = cover.GetString() ?? "";
+        }
+        catch (HttpRequestException) { } catch (JsonException) { }
+        library.Songs.Add(song);
+    }
+    async void Lyrics_Click(object sender, RoutedEventArgs e)
+    {
+        var song = (SongList.SelectedItem as SongRow)?.Song ?? current;
+        if (song == null) { MessageBox.Show("Select a song first."); return; }
+        try
+        {
+            string path = Path.Combine(Path.GetDirectoryName(song.FilePath) ?? LibraryStore.Folder,
+                Path.GetFileNameWithoutExtension(song.FilePath.Length == 0 ? song.Id.ToString() : song.FilePath) + ".lrc");
+            if (!File.Exists(path))
+            {
+                var lookup = "https://lrclib.net/api/get?track_name=" + Uri.EscapeDataString(song.Title) + "&artist_name=" + Uri.EscapeDataString(song.Artist);
+                using var response = await http.GetAsync(lookup);
+                if (!response.IsSuccessStatusCode) { MessageBox.Show("No lyrics available for this track."); return; }
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+                var lyrics = root.TryGetProperty("syncedLyrics", out var synced) && synced.ValueKind == JsonValueKind.String ? synced.GetString() : null;
+                lyrics ??= root.TryGetProperty("plainLyrics", out var plain) && plain.ValueKind == JsonValueKind.String ? plain.GetString() : null;
+                if (string.IsNullOrWhiteSpace(lyrics)) { MessageBox.Show("Lyrics aren't available for this song."); return; }
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await File.WriteAllTextAsync(path, lyrics, Encoding.UTF8);
+            }
+            song.LyricsPath = path;
+            Save();
+            var viewer = new Window { Owner = this, Title = "Lyrics · " + song.Title, Width = 550, Height = 650 };
+            Theme.ApplyWindow(viewer);
+            viewer.Content = new TextBox { Text = await File.ReadAllTextAsync(path), IsReadOnly = true,
+                TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = Theme.AppBg, Foreground = Theme.Text,
+                BorderBrush = Theme.Stroke, BorderThickness = new Thickness(1), FontSize = 16, Padding = new Thickness(24) };
+            viewer.ShowDialog();
+        }
+        catch (Exception ex) { MessageBox.Show("Lyrics lookup failed: " + ex.Message); }
+    }
+    static bool IsHost(string host, string domain) => host == domain || host.EndsWith("." + domain, StringComparison.Ordinal);
+    void SongList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    { if (SongList.SelectedItem is SongRow row) StartSong(row.Song); }
+    void PlayAll_Click(object sender, RoutedEventArgs e)
+    { if (rows.FirstOrDefault(r => File.Exists(r.Song.FilePath)) is { } row) StartSong(row.Song); else MessageBox.Show("No playable local tracks in this view."); }
+    void StartSong(Song song)
+    {
+        if (string.IsNullOrEmpty(song.FilePath) || !File.Exists(song.FilePath))
+        {
+            if (Uri.TryCreate(song.SourceUrl, UriKind.Absolute, out var uri) && (uri.Scheme == "https" || uri.Scheme == "http"))
+                Process.Start(new ProcessStartInfo(uri.ToString()) { UseShellExecute = true });
+            else if (MessageBox.Show(this,
+                         "This track is missing its local audio file. Remove it from your library?",
+                         "Missing audio file", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                RemoveSongFromLibrary(song);
+                Save();
+                Refresh();
+            }
+            return;
+        }
+        try
+        {
+            // Snapshot the old playback state before opening another audio file.
+            if (current != null && reader != null)
+                playerSettings.LastPositionSeconds = reader.CurrentTime.TotalSeconds;
+            Stop();
+            // Keep the active queue when auto-advancing or repeating; otherwise
+            // use the selected list if this is a new track selection.
+            if (!queue.Any(x => x.Id == song.Id))
+                queue = rows.Select(r => r.Song).Where(x => File.Exists(x.FilePath)).ToList();
+            reader = new AudioFileReader(song.FilePath) { Volume = (float)Volume.Value };
+            if (!restoredPositionConsumed && playerSettings.LastTrackId == song.Id
+                && playerSettings.LastPositionSeconds > 0
+                && playerSettings.LastPositionSeconds < reader.TotalTime.TotalSeconds - 2)
+            {
+                reader.CurrentTime = TimeSpan.FromSeconds(playerSettings.LastPositionSeconds);
+                // Resume at most once per application launch, not on every repeat.
+            }
+            restoredPositionConsumed = true;
+            output = CreateAudioOutput();
+            output.Init(reader);
+            int generation = playbackGeneration;
+            var playingReader = reader;
+            output.PlaybackStopped += (_, args) => Dispatcher.BeginInvoke(() =>
+            {
+                // Ignore stale callbacks from a previously stopped/disposed player.
+                if (generation != playbackGeneration || reader != playingReader) return;
+                if (args.Exception != null)
+                {
+                    SetPlayIcon(false);
+                    return;
+                }
+                if (playingReader.Position >= playingReader.Length)
+                    NextTrack(true);
+                else
+                    SetPlayIcon(false);
+            });
+            current = song; NowTitle.Text = song.Title; NowArtist.Text = song.Artist;
+            playerSettings.LastTrackId = song.Id;
+            NowArtwork.Source = LoadArtwork(song);
+            UpdateCurrentLikeButton();
+            Progress.Maximum = 100;
+            updatingProgress = true;
+            Progress.Value = reader.TotalTime.TotalSeconds > 0
+                ? reader.CurrentTime.TotalSeconds / reader.TotalTime.TotalSeconds * 100 : 0;
+            updatingProgress = false;
+            Elapsed.Text = FormatPlaybackTime(reader.CurrentTime);
+            Total.Text = FormatPlaybackTime(reader.TotalTime);
+            output.Play();
+            SetPlayIcon(true);
+            SaveAudioSettings();
+        }
+        catch (Exception ex) { Stop(); MessageBox.Show("Playback error: " + ex.Message); }
+    }
+    BitmapImage? LoadArtwork(Song song) => ArtworkResolver.Load(song);
+    void SetPlayIcon(bool isPlaying)
+    {
+        PlayGlyph.Symbol = isPlaying
+            ? Wpf.Ui.Controls.SymbolRegular.Pause24
+            : Wpf.Ui.Controls.SymbolRegular.Play24;
+    }
+    void Stop()
+    {
+        // Invalidate callbacks before disposing the old output device.
+        playbackGeneration++;
+        var oldOutput = output;
+        output = null;
+        if (oldOutput != null)
+        {
+            oldOutput.Stop();
+            oldOutput.Dispose();
+        }
+        reader?.Dispose();
+        reader = null;
+        SetPlayIcon(false);
+    }
+    void PlayPause_Click(object sender, RoutedEventArgs e)
+    {
+        if (output == null || reader == null)
+        {
+            if (current != null) StartSong(current);
+            else PlayAll_Click(sender, e);
+            return;
+        }
+        if (output.PlaybackState == PlaybackState.Playing)
+        {
+            output.Pause();
+            SetPlayIcon(false);
+        }
+        else
+        {
+            if (reader.Position >= reader.Length) reader.CurrentTime = TimeSpan.Zero;
+            output.Play();
+            SetPlayIcon(true);
+        }
+        SaveAudioSettings();
+    }
+    void NextTrack(bool automatic = false)
+    {
+        if (queue.Count == 0 || current == null) { SetPlayIcon(false); return; }
+        // Repeat-one affects automatic end-of-track playback, not the Next button.
+        if (automatic && repeatMode == 2)
+        {
+            playerSettings.LastPositionSeconds = 0;
+            StartSong(current);
+            return;
+        }
+        int idx = queue.FindIndex(x => x.Id == current.Id);
+        if (idx < 0) { SetPlayIcon(false); return; }
+        if (automatic && idx == queue.Count - 1 && repeatMode == 0 && !shuffle)
+        {
+            // End of queue: button becomes Play and progress remains at the end.
+            SetPlayIcon(false);
+            if (reader != null)
+            {
+                updatingProgress = true;
+                Progress.Value = 100;
+                updatingProgress = false;
+                Elapsed.Text = Total.Text;
+                playerSettings.LastPositionSeconds = 0;
+            }
+            playerSettings.Save();
+            return;
+        }
+        int next;
+        if (shuffle)
+        {
+            next = random.Next(queue.Count);
+            if (queue.Count > 1 && next == idx)
+                next = (next + 1) % queue.Count;
+        }
+        else next = (idx + 1) % queue.Count;
+        playerSettings.LastPositionSeconds = 0;
+        StartSong(queue[next]);
+    }
+    void Next_Click(object sender, RoutedEventArgs e) => NextTrack(false);
+    void Previous_Click(object sender, RoutedEventArgs e)
+    {
+        if (reader != null && reader.CurrentTime.TotalSeconds > 3) { reader.CurrentTime = TimeSpan.Zero; return; }
+        if (queue.Count == 0 || current == null) return;
+        int idx = queue.FindIndex(x => x.Id == current.Id);
+        StartSong(queue[(idx - 1 + queue.Count) % queue.Count]);
+    }
+    void Shuffle_Click(object sender, RoutedEventArgs e)
+    {
+        shuffle = !shuffle;
+        UpdateShuffleButtons();
+    }
+    void UpdateShuffleButtons()
+    {
+        var brush = shuffle
+            ? (System.Windows.Media.Brush)FindResource("WaveAccent")
+            : System.Windows.Media.Brushes.White;
+        ShuffleButton.Foreground = brush;
+        BottomShuffleButton.Foreground = brush;
+        ShuffleButton.ToolTip = shuffle ? "Shuffle on" : "Shuffle";
+        BottomShuffleButton.ToolTip = shuffle ? "Shuffle on" : "Shuffle";
+    }
+    void Repeat_Click(object sender, RoutedEventArgs e)
+    {
+        repeatMode = (repeatMode + 1) % 3;
+        UpdateRepeatButton();
+        SaveAudioSettings();
+    }
+    void UpdateRepeatButton()
+    {
+        RepeatButton.ToolTip = repeatMode switch
+        {
+            1 => "Repeat playlist",
+            2 => "Repeat one song",
+            _ => "Repeat off"
+        };
+        RepeatButton.Content = repeatMode == 2 ? "↻₁" : "↻";
+        RepeatButton.Foreground = repeatMode == 0
+            ? System.Windows.Media.Brushes.White
+            : (System.Windows.Media.Brush)FindResource("WaveAccent");
+    }
+    void SaveAudioSettings()
+    {
+        if (initializingAudioSettings) return;
+        playerSettings.Volume = Volume.Value;
+        playerSettings.OutputDeviceId = selectedOutputId;
+        playerSettings.RepeatMode = repeatMode;
+        if (current != null && reader != null)
+        {
+            playerSettings.LastTrackId = current.Id;
+            playerSettings.LastPositionSeconds = reader.CurrentTime.TotalSeconds;
+        }
+        playerSettings.Save();
+        lastSettingsSave = DateTime.UtcNow;
+    }
+
+    void UpdateProgress()
+    {
+        if (reader == null || dragging) return;
+        if (output != null && output.PlaybackState == PlaybackState.Stopped && reader.Position >= reader.Length)
+            SetPlayIcon(false);
+        updatingProgress = true;
+        Progress.Value = reader.TotalTime.TotalSeconds > 0 ? Math.Clamp(reader.CurrentTime.TotalSeconds / reader.TotalTime.TotalSeconds * 100, 0, 100) : 0;
+        updatingProgress = false;
+        Elapsed.Text = FormatPlaybackTime(reader.CurrentTime);
+        if ((DateTime.UtcNow - lastSettingsSave).TotalSeconds >= 10)
+            SaveAudioSettings();
+    }
+    // Seek uses percentages (0..100), independent of track duration.
+    void SeekToPercentage(double percent)
+    {
+        if (reader == null) return;
+        double seconds = reader.TotalTime.TotalSeconds * Math.Clamp(percent, 0, 100) / 100.0;
+        reader.CurrentTime = TimeSpan.FromSeconds(seconds);
+        Elapsed.Text = FormatPlaybackTime(reader.CurrentTime);
+        SaveAudioSettings();
+    }
+    // TotalMinutes prevents the time display wrapping back to zero after 59 minutes.
+    static string FormatPlaybackTime(TimeSpan value)
+    {
+        if (value < TimeSpan.Zero) value = TimeSpan.Zero;
+        return $"{(int)value.TotalMinutes}:{value.Seconds:00}";
+    }
+
+
+    void Progress_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        dragging = true;
+        // Clicking the empty track should jump there; clicking the thumb keeps normal dragging.
+        if (e.OriginalSource is DependencyObject source && FindThumb(source) != null) return;
+        SeekFromPointer((Slider)sender, e);
+    }
+    static Thumb? FindThumb(DependencyObject child)
+    {
+        for (DependencyObject? node = child; node != null; node = VisualTreeHelper.GetParent(node))
+            if (node is Thumb thumb) return thumb;
+        return null;
+    }
+    void SeekFromPointer(Slider slider, MouseEventArgs e)
+    {
+        if (slider.ActualWidth <= 0) return;
+        double x = e.GetPosition(slider).X;
+        slider.Value = Math.Clamp(x / slider.ActualWidth * 100.0, 0, 100);
+    }
+    void Progress_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Slider slider) SeekToPercentage(slider.Value);
+        dragging = false;
+    }
+    void Progress_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (updatingProgress || reader == null) return;
+        SeekToPercentage(e.NewValue);
+    }
+    void RefreshAudioDevices()
+    {
+        try
+        {
+            foreach (var device in availableOutputs) device.Dispose();
+            availableOutputs.Clear();
+            audioDevices?.Dispose();
+            audioDevices = new MMDeviceEnumerator();
+            var devices = audioDevices.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+            var previouslySelected = selectedOutputId;
+            OutputDeviceCombo.Items.Clear();
+            OutputDeviceCombo.Items.Add("System default");
+            foreach (var device in devices)
+            {
+                availableOutputs.Add(device);
+                OutputDeviceCombo.Items.Add(device.FriendlyName);
+            }
+            int match = availableOutputs.FindIndex(d => d.ID == previouslySelected);
+            initializingAudioSettings = true;
+            try { OutputDeviceCombo.SelectedIndex = match < 0 ? 0 : match + 1; }
+            finally { initializingAudioSettings = false; }
+        }
+        catch (Exception ex)
+        {
+            OutputDeviceCombo.Items.Clear();
+            OutputDeviceCombo.Items.Add("System default");
+            OutputDeviceCombo.SelectedIndex = 0;
+            Debug.WriteLine("Audio device enumeration: " + ex);
+        }
+    }
+    IWavePlayer CreateAudioOutput()
+    {
+        if (selectedOutputId != null)
+        {
+            var device = availableOutputs.FirstOrDefault(d => d.ID == selectedOutputId);
+            if (device != null) return new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
+        }
+        return new WasapiOut(AudioClientShareMode.Shared, 100);
+    }
+    void OutputDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (initializingAudioSettings || OutputDeviceCombo.SelectedIndex < 0) return;
+        string? newId = OutputDeviceCombo.SelectedIndex == 0 ? null :
+            availableOutputs.ElementAtOrDefault(OutputDeviceCombo.SelectedIndex - 1)?.ID;
+        if (newId == selectedOutputId) return;
+        selectedOutputId = newId;
+        SaveAudioSettings();
+        // Preserve playback position and paused state when changing speakers.
+        if (reader == null || current == null) return;
+        var song = current;
+        var position = reader.CurrentTime;
+        bool paused = output?.PlaybackState == PlaybackState.Paused;
+        StartSong(song);
+        if (reader != null) reader.CurrentTime = position;
+        if (paused && output != null) { output.Pause(); SetPlayIcon(false); }
+    }
+
+    void DevicePickerButton_Click(object sender, RoutedEventArgs e)
+    {
+        OutputPickerHost.Visibility = OutputPickerHost.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        if (OutputPickerHost.Visibility == Visibility.Visible)
+            OutputDeviceCombo.Focus();
+    }
+
+    void DragArea_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject origin)
+        {
+            for (DependencyObject? current = origin; current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (current is Button || current is TextBox || current is ComboBox)
+                    return;
+            }
+        }
+        if (e.ClickCount == 2)
+        {
+            ToggleWindowState();
+            return;
+        }
+        try { DragMove(); } catch { }
+    }
+
+    void WindowMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    void WindowMaxRestore_Click(object sender, RoutedEventArgs e) => ToggleWindowState();
+    void WindowClose_Click(object sender, RoutedEventArgs e) => Close();
+
+    void ToggleWindowState()
+    {
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+    }
+
+    void RefreshOutputs_Click(object sender, RoutedEventArgs e) => RefreshAudioDevices();
+    void Volume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (reader != null) reader.Volume = (float)Volume.Value;
+        if (!initializingAudioSettings) SaveAudioSettings();
+    }
+}
+public class SongRow
+{
+    public Song Song { get; }
+    public SongRow(Song song, int index) { Song = song; Index = index; }
+    public int Index { get; }
+    public string Title => Song.Title;
+    public string Artist => Song.Artist;
+    public string Album => Song.Album;
+    public string Source => Song.Source;
+    public string Duration => Song.Duration;
+    public string DateAdded => Song.DateAddedUtc?.ToLocalTime().ToString("MMM d, yyyy") ?? "—";
+    public string Heart => Song.Liked ? "♥" : "";
+    public BitmapImage? Artwork => ArtworkResolver.Load(Song);
+}
+
+public sealed class MusicShelf
+{
+    public string Title { get; }
+    public IReadOnlyList<SongRow> Tracks { get; }
+    public MusicShelf(string title, IReadOnlyList<SongRow> tracks) { Title = title; Tracks = tracks; }
+}
+
+public sealed class PlaylistRow
+{
+    public Playlist Playlist { get; }
+    public System.Windows.Media.Imaging.BitmapImage? Cover { get; }
+    public PlaylistRow(Playlist playlist, System.Windows.Media.Imaging.BitmapImage? cover) { Playlist = playlist; Cover = cover; }
+    public override string ToString() => Playlist.Name;
+}
