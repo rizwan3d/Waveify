@@ -159,8 +159,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             "Missing optional tools: " + string.Join(", ", missing) + ".\n\n" +
             "Install these optional dependencies in your local Waveify tools folder? " +
             "The executable tools come from official GitHub releases with SHA-256 verification. " +
-            "ddgs and its Python dependencies come from PyPI using pip and are kept in Waveify's tools folder. " +
-            "ddgs requires Python 3.10+ with pip already installed; if Python is missing, you will receive setup instructions.\n\n" +
+            "For Spotify search, Waveify downloads one compact official Python 3.13 runtime package with pip from NuGet, " +
+            "verifies its SHA-512 checksum, and installs only required runtime files plus ddgs wheels in Waveify's private tools folder. " +
+            "No system Python or PATH changes are needed.\n\n" +
             "Third-party tools may use network access and disk space. You may decline and still play local music.",
             "Set up Waveify tools", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
