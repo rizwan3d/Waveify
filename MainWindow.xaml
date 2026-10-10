@@ -56,14 +56,12 @@
 
                 <!-- left sidebar -->
                 <Border Grid.Column="0" Margin="0,0,14,0" Background="{StaticResource WavePanel}" BorderBrush="{StaticResource WaveStroke}" BorderThickness="1" CornerRadius="16" Padding="12">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-
+                    <ScrollViewer x:Name="SidebarScrollViewer"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  PanningMode="VerticalOnly"
+                                  PreviewMouseWheel="SidebarScrollViewer_PreviewMouseWheel">
+                        <StackPanel>
                         <Grid Margin="0,2,0,12">
                              <Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                              <Border Width="52" Height="52" CornerRadius="26" Background="#242936" HorizontalAlignment="Left">
@@ -75,7 +73,7 @@
                              </StackPanel>
                          </Grid>
 
-                        <StackPanel Grid.Row="1" Margin="0,12,0,0">
+                        <StackPanel Margin="0,12,0,0">
                             <Button x:Name="HomeNavButton" Style="{StaticResource SidebarActiveButton}" Click="Home_Click">
                                 <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Home24" Margin="0,0,12,0"/><TextBlock Text="Home"/></StackPanel>
                             </Button>
@@ -87,7 +85,7 @@
                             </Button>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="2" Margin="0,20,0,0">
+                        <StackPanel Margin="0,20,0,0">
                             <TextBlock Text="Library" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
                             <Button Style="{StaticResource SidebarNew}" Click="RescanLibrary_Click" ToolTip="Rescan music folders for unlisted songs">
                                 <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowSync24" Margin="0,0,12,0"/><TextBlock Text="Rescan library"/></StackPanel>
@@ -100,7 +98,7 @@
                             </Button>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="3" Margin="0,18,0,0">
+                        <StackPanel Margin="0,18,0,0">
                             <Button Style="{StaticResource SidebarNew}" Click="RecentlyAdded_Click" ToolTip="Recently Added"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowSync24" Margin="0,0,12,0"/><TextBlock Text="Recently Added"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="History_Click" ToolTip="Recently Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Play24" Margin="0,0,12,0"/><TextBlock Text="Recently Played"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="Stats_Click" ToolTip="Most Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Grid24" Margin="0,0,12,0"/><TextBlock Text="Most Played"/></StackPanel></Button>
@@ -108,7 +106,7 @@
                             <Button Style="{StaticResource SidebarNew}" Click="Unplayed_Click" ToolTip="Unplayed"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="MusicNote224" Margin="0,0,12,0"/><TextBlock Text="Unplayed"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="TextBulletListSquare24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
-                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" PreviewMouseRightButtonUp="PlaylistList_PreviewMouseRightButtonUp" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" PreviewMouseRightButtonUp="PlaylistList_PreviewMouseRightButtonUp" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="4,4,2,4">
@@ -128,11 +126,12 @@
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </StackPanel>
-                    </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Border>
 
                 <!-- center -->
-                <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="CenterScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                     <StackPanel>
                         <Border Height="300" CornerRadius="12" ClipToBounds="True" Margin="0,0,0,18">
                             <Grid>
@@ -270,9 +269,13 @@
                             </StackPanel>
                         </DockPanel>
 
-                        <ItemsControl x:Name="SongGrid" Visibility="Collapsed" ItemsSource="{Binding ElementName=SongList,Path=ItemsSource}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Button Width="150" Height="70" Margin="5" Click="SongCard_Play_Click"><StackPanel><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Artist}" FontSize="11" TextTrimming="CharacterEllipsis"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <ScrollViewer x:Name="SongGridScrollViewer" Height="290" Visibility="Collapsed"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      PanningMode="VerticalOnly">
+                        <ItemsControl x:Name="SongGrid" ItemsSource="{Binding ElementName=SongList,Path=ItemsSource}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Button Width="150" Height="70" Margin="5" Click="SongCard_Play_Click"><StackPanel><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Artist}" FontSize="11" TextTrimming="CharacterEllipsis"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        </ScrollViewer>
                         <WrapPanel Margin="8,2"><TextBox x:Name="ArtistFilter" Width="90" ToolTip="Artist filter"/><TextBox x:Name="AlbumFilter" Width="90" ToolTip="Album filter"/><TextBox x:Name="GenreFilter" Width="90" ToolTip="Genre filter"/><TextBox x:Name="YearFilter" Width="55" ToolTip="Year"/><CheckBox x:Name="LikedFilter" Content="Liked"/><CheckBox x:Name="LocalFilter" Content="Local"/><Button Content="Filter" Click="ApplyFilters_Click"/><Button Content="Reset" Click="ResetFilters_Click"/></WrapPanel>
-                        <ListView x:Name="SongList" AllowDrop="True" PreviewMouseLeftButtonDown="SongList_PreviewMouseLeftButtonDown" MouseMove="SongList_MouseMove" Drop="SongList_Drop" ContextMenuOpening="SongList_ContextMenuOpening" PreviewMouseRightButtonDown="SongList_PreviewMouseRightButtonDown" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="SongList_MouseDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemContainerStyle="{StaticResource MusicTrackRow}">
+                        <ListView x:Name="SongList" Height="290" AllowDrop="True" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseWheel="SongList_PreviewMouseWheel" PreviewMouseLeftButtonDown="SongList_PreviewMouseLeftButtonDown" MouseMove="SongList_MouseMove" Drop="SongList_Drop" ContextMenuOpening="SongList_ContextMenuOpening" PreviewMouseRightButtonDown="SongList_PreviewMouseRightButtonDown" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="SongList_MouseDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemContainerStyle="{StaticResource MusicTrackRow}">
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Header="#" Width="42" DisplayMemberBinding="{Binding Index}"/>
