@@ -16,6 +16,17 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - Optional tool setup window for downloader dependencies.
 - Restores volume, output device, repeat mode, last track, and playback position between sessions.
 
+
+## Library and playback features
+
+- Sort songs using the library dropdown: playlist order, title, artist, or newest added.
+- In a playlist, drag a song onto another row to reorder it; the order is saved automatically. Select **Playlist order** to see the saved order.
+- Right-click a song to edit its title, artist, album, and genre. These edits update Waveify's library metadata (they do not rewrite the audio file tags).
+- **Recently Added** displays the 50 newest imports, and **Recently Played** keeps the last 100 distinct tracks between launches.
+- Home offers artist, album, and genre shelves. Double-click a shelf track to play it.
+- The Bass slider in the bottom player controls a low-shelf equalizer from -12 to +12 dB.
+- Keyboard shortcuts: **Space** play/pause, **Ctrl+F** search, **Ctrl+O** import files, **Ctrl+Right** next, and **Ctrl+Left** previous.
+
 ## Dependencies
 
 Waveify targets Windows and requires:
