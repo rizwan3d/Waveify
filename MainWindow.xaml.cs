@@ -43,6 +43,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     SongRow? draggedSong;
     Song? current;
     List<Song> queue = new();
+    readonly ObservableCollection<SongRow> offlineSearchRows = new();
+    readonly ObservableCollection<SongRow> youtubeSearchRows = new();
+    readonly ObservableCollection<SongRow> soundcloudSearchRows = new();
+    readonly ObservableCollection<SongRow> spotifySearchRows = new();
     readonly ObservableCollection<SongRow> queueRows = new();
     bool gridView;
     string artistFilter = "", albumFilter = "", genreFilter = "";
@@ -61,6 +65,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Volume.Value = playerSettings.Volume;
         selectedOutputId = playerSettings.OutputDeviceId;
         SongList.ItemsSource = rows;
+        OfflineSearchResults.ItemsSource = offlineSearchRows;
+        YoutubeSearchResults.ItemsSource = youtubeSearchRows;
+        SoundcloudSearchResults.ItemsSource = soundcloudSearchRows;
+        SpotifySearchResults.ItemsSource = spotifySearchRows;
         PlaylistList.ItemsSource = playlistRows;
         QueueList.ItemsSource = queueRows;
         SongGrid.ItemsSource = rows;
@@ -278,6 +286,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Heading.Text = selectedPlaylist?.Name ?? (duplicatesOnly ? "Possible Duplicates" : unplayedOnly ? "Unplayed Songs" : recentOnly ? "Recently Added" : historyOnly ? "Recently Played" : likedOnly ? "Liked Songs" : "Library");
         SubHeading.Text = $"{rows.Count} tracks · Double-click a local track to play";
         RefreshQueueRows();
+        RefreshUnifiedSearch(search ?? "");
     }
     void ShelfTrack_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -286,7 +295,70 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
     void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
-    void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (rows != null) Refresh(); }
+    void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (rows != null) Refresh();
+    }
+
+    static bool MatchesUnifiedSearch(Song song, string query) =>
+        (song.Title + " " + song.Artist + " " + song.Album + " " + song.Genre)
+            .Contains(query, StringComparison.OrdinalIgnoreCase);
+
+    void RefreshUnifiedSearch(string rawQuery)
+    {
+        string query = rawQuery.Trim();
+        bool searching = query.Length > 0;
+        UnifiedSearchPanel.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
+        BrowseContentPanel.Visibility = searching ? Visibility.Collapsed : Visibility.Visible;
+        if (!searching)
+        {
+            offlineSearchRows.Clear();
+            youtubeSearchRows.Clear();
+            soundcloudSearchRows.Clear();
+            spotifySearchRows.Clear();
+            return;
+        }
+
+        UnifiedQueryHeading.Text = "Results for \"" + query + "\"";
+        offlineSearchRows.Clear();
+        youtubeSearchRows.Clear();
+        soundcloudSearchRows.Clear();
+        spotifySearchRows.Clear();
+
+        foreach (var song in library.Songs.Where(s => MatchesUnifiedSearch(s, query)))
+        {
+            if (!string.IsNullOrWhiteSpace(song.FilePath) && File.Exists(song.FilePath))
+            {
+                offlineSearchRows.Add(new SongRow(song, offlineSearchRows.Count + 1));
+                continue;
+            }
+            if (!Uri.TryCreate(song.SourceUrl, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps) continue;
+            var host = uri.Host.ToLowerInvariant();
+            var group = IsHost(host, "youtube.com") || IsHost(host, "youtu.be") ? youtubeSearchRows
+                : IsHost(host, "soundcloud.com") ? soundcloudSearchRows
+                : IsHost(host, "spotify.com") ? spotifySearchRows : null;
+            if (group != null) group.Add(new SongRow(song, group.Count + 1));
+        }
+
+        OfflineSearchCount.Text = $"{offlineSearchRows.Count} local matches";
+        YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} saved links";
+        SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} saved links";
+        SpotifySearchCount.Text = $"{spotifySearchRows.Count} saved links";
+        CenterScrollViewer.ScrollToTop();
+    }
+
+    void UnifiedClearSearch_Click(object sender, RoutedEventArgs e)
+    {
+        SearchBox.Clear();
+        SearchBox.Focus();
+    }
+
+    void UnifiedResult_Open_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SongRow row }) StartSong(row.Song);
+    }
+
     void ShowPlaylist(Playlist playlist)
     {
         selectedPlaylist = playlist;
@@ -710,27 +782,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
-    void OnlineSearchBox_KeyDown(object sender, KeyEventArgs e)
+    void UnifiedProviderSearch_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Key != Key.Enter) return;
-        OnlineSearch_Click(sender, new RoutedEventArgs());
-        e.Handled = true;
-    }
-
-    void OnlineSearch_Click(object sender, RoutedEventArgs e)
-    {
-        // Each provider owns its search results. No scraping or API key is needed.
-        string query = OnlineSearchBox.Text.Trim();
-        if (query.Length == 0) query = SearchBox.Text.Trim();
+        string query = SearchBox.Text.Trim();
         if (query.Length == 0)
         {
-            OnlineSearchStatus.Text = "Type an artist or song name first.";
-            OnlineSearchBox.Focus();
+            SearchBox.Focus();
+            UnifiedStatus.Text = "Type a song, artist or album in the top search box first.";
             return;
         }
 
+        string provider = (sender as Button)?.Tag?.ToString() ?? "YouTube";
         string encoded = Uri.EscapeDataString(query);
-        string provider = (OnlineSearchProvider.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YouTube";
         string url = provider switch
         {
             "Spotify" => "https://open.spotify.com/search/" + encoded,
@@ -740,26 +803,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         try
         {
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            OnlineSearchStatus.Text = $"Opened {provider} results. Copy a track or playlist URL, then click Paste.";
+            UnifiedStatus.Text = $"Opened {provider} search results. Copy a result link to preview or import it.";
         }
-        catch (Exception ex)
-        {
-            OnlineSearchStatus.Text = "Could not open the browser: " + ex.Message;
-        }
+        catch (Exception ex) { UnifiedStatus.Text = "Cannot open browser: " + ex.Message; }
     }
 
-    void OnlinePasteLink_Click(object sender, RoutedEventArgs e)
+    void UnifiedPasteLink_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             if (Clipboard.ContainsText())
             {
-                OnlineLinkBox.Text = Clipboard.GetText().Trim();
-                OnlineSearchStatus.Text = "Link pasted. Preview it or download audio you have permission to save.";
+                UnifiedUrlBox.Text = Clipboard.GetText().Trim();
+                UnifiedStatus.Text = "Link pasted. Preview the details or import authorized audio.";
             }
-            else OnlineSearchStatus.Text = "Copy a link from your browser first.";
+            else UnifiedStatus.Text = "Copy a provider result link first.";
         }
-        catch (Exception ex) { OnlineSearchStatus.Text = "Clipboard unavailable: " + ex.Message; }
+        catch (Exception ex) { UnifiedStatus.Text = "Clipboard unavailable: " + ex.Message; }
     }
 
     static string? PublicMusicMetadataEndpoint(Uri uri)
@@ -773,21 +833,21 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         return null;
     }
 
-    async void OnlinePreview_Click(object sender, RoutedEventArgs e)
+    async void UnifiedPreview_Click(object sender, RoutedEventArgs e)
     {
-        if (!Uri.TryCreate(OnlineLinkBox.Text.Trim(), UriKind.Absolute, out var uri) ||
+        if (!Uri.TryCreate(UnifiedUrlBox.Text.Trim(), UriKind.Absolute, out var uri) ||
             uri.Scheme != Uri.UriSchemeHttps)
         {
-            OnlineSearchStatus.Text = "Paste a valid HTTPS music link to preview.";
+            UnifiedStatus.Text = "Paste a valid HTTPS music link to preview.";
             return;
         }
         var endpoint = PublicMusicMetadataEndpoint(uri);
         if (endpoint == null)
         {
-            OnlineSearchStatus.Text = "Preview supports public YouTube, Spotify and SoundCloud links.";
+            UnifiedStatus.Text = "Preview supports public YouTube, Spotify and SoundCloud links.";
             return;
         }
-        OnlineSearchStatus.Text = "Loading public track information…";
+        UnifiedStatus.Text = "Loading public track information…";
         try
         {
             using var response = await http.GetAsync(endpoint);
@@ -796,11 +856,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             var root = document.RootElement;
             var title = root.TryGetProperty("title", out var name) ? name.GetString() : null;
             var artist = root.TryGetProperty("author_name", out var author) ? author.GetString() : null;
-            OnlineSearchStatus.Text = (title ?? "Track") + (string.IsNullOrWhiteSpace(artist) ? "" : " — " + artist);
+            UnifiedStatus.Text = (title ?? "Track") + (string.IsNullOrWhiteSpace(artist) ? "" : " — " + artist);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
         {
-            OnlineSearchStatus.Text = "Preview unavailable for this link. You can still try an authorized download.";
+            UnifiedStatus.Text = "Preview unavailable for this link. You can still try an authorized download.";
         }
     }
 
@@ -843,12 +903,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
-    async void OnlineDownload_Click(object sender, RoutedEventArgs e)
+    async void UnifiedDownload_Click(object sender, RoutedEventArgs e)
     {
-        string url = OnlineLinkBox.Text.Trim();
+        string url = UnifiedUrlBox.Text.Trim();
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
         {
-            OnlineSearchStatus.Text = "Paste a valid HTTPS track, playlist or audio-file URL.";
+            UnifiedStatus.Text = "Paste a valid HTTPS track, playlist or audio-file URL.";
             return;
         }
 
@@ -858,7 +918,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         bool directAudio = DirectAudioExtensions.Contains(Path.GetExtension(uri.AbsolutePath), StringComparer.OrdinalIgnoreCase);
         if (!spotify && !video && !directAudio)
         {
-            OnlineSearchStatus.Text = "Supported links: YouTube, Spotify, SoundCloud, or direct HTTPS audio files.";
+            UnifiedStatus.Text = "Supported links: YouTube, Spotify, SoundCloud, or direct HTTPS audio files.";
             return;
         }
 
@@ -866,7 +926,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             "Download only music that you own or have permission to save. Continue?",
             "Authorized music download", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
-        OnlineDownloadButton.IsEnabled = false;
+        UnifiedDownloadButton.IsEnabled = false;
         var progressWindow = new SongDownloadProgressWindow(this, 1);
         progressWindow.Show();
         int imported = 0;
@@ -878,7 +938,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 Action<string> report = status => Dispatcher.Invoke(() =>
                 {
-                    OnlineSearchStatus.Text = status;
+                    UnifiedStatus.Text = status;
                     SubHeading.Text = status;
                 });
                 var files = spotify
@@ -906,19 +966,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             Save();
             Refresh();
-            OnlineSearchStatus.Text = $"Imported {imported} track(s) into your offline library.";
+            UnifiedStatus.Text = $"Imported {imported} track(s) into your offline library.";
             MessageBox.Show(this, $"Imported {imported} track(s).", "Download complete");
         }
         catch (Exception ex)
         {
-            OnlineSearchStatus.Text = "Download failed: " + ex.Message;
+            UnifiedStatus.Text = "Download failed: " + ex.Message;
             MessageBox.Show(this, "Unable to import this link: " + ex.Message, "Download failed",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
             progressWindow.Finish(1);
-            OnlineDownloadButton.IsEnabled = true;
+            UnifiedDownloadButton.IsEnabled = true;
         }
     }
 
