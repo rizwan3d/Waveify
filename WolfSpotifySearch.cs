@@ -41,8 +41,18 @@ internal static class WolfSpotifySearch
 
         if (response.Content.Headers.ContentLength > MaxResponseBytes)
             throw new InvalidOperationException("Spotify search returned too much data.");
-        await response.Content.LoadIntoBufferAsync(MaxResponseBytes, cancellationToken);
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
+        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var responseBuffer = new MemoryStream();
+        var chunk = new byte[16 * 1024];
+        int bytesRead;
+        while ((bytesRead = await responseStream.ReadAsync(chunk.AsMemory(), cancellationToken)) > 0)
+        {
+            if (responseBuffer.Length + bytesRead > MaxResponseBytes)
+                throw new InvalidOperationException("Spotify search returned too much data.");
+            await responseBuffer.WriteAsync(chunk.AsMemory(0, bytesRead), cancellationToken);
+        }
+        responseBuffer.Position = 0;
+        using var json = JsonDocument.Parse(responseBuffer);
         var root = json.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("Unexpected Spotify search response.");
