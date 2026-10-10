@@ -900,7 +900,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             restoredPositionConsumed = true;
             output = CreateAudioOutput();
             equalizer = new EqualizerProvider(reader);
-            equalizer.SetBands(EqualizerSlider.Value, MidSlider.Value, TrebleSlider.Value);
+            equalizer.SetBands(EqualizerEnabled.IsChecked == true ? EqualizerSlider.Value : 0, EqualizerEnabled.IsChecked == true ? MidSlider.Value : 0, EqualizerEnabled.IsChecked == true ? TrebleSlider.Value : 0);
             output.Init(new SampleToWaveProvider(equalizer));
             int generation = playbackGeneration;
             var playingReader = reader;
@@ -1333,10 +1333,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         };
         EqualizerSlider.Value = bass; MidSlider.Value = mid; TrebleSlider.Value = treble;
     }
+    void ToggleEqualizer_Click(object sender, RoutedEventArgs e)
+    {
+        EqualizerPanel.Visibility = EqualizerPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    }
+    void EqualizerEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (EqualizerSlider != null && MidSlider != null && TrebleSlider != null)
+            equalizer?.SetBands(EqualizerEnabled.IsChecked == true ? EqualizerSlider.Value : 0, EqualizerEnabled.IsChecked == true ? MidSlider.Value : 0, EqualizerEnabled.IsChecked == true ? TrebleSlider.Value : 0);
+    }
     void EqualizerSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (EqualizerSlider != null && MidSlider != null && TrebleSlider != null)
-            equalizer?.SetBands(EqualizerSlider.Value, MidSlider.Value, TrebleSlider.Value);
+            equalizer?.SetBands(EqualizerEnabled?.IsChecked == true ? EqualizerSlider.Value : 0, EqualizerEnabled?.IsChecked == true ? MidSlider.Value : 0, EqualizerEnabled?.IsChecked == true ? TrebleSlider.Value : 0);
     }
 
 
