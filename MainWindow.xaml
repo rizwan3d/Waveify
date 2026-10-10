@@ -150,7 +150,7 @@
                             </Button>
                         </DataTemplate>
 
-                        <DataTemplate x:Key="YouTubeSearchResultTemplate">
+                        <DataTemplate x:Key="ProviderSearchResultTemplate">
                             <Border Background="#1A202B" BorderBrush="#303848" BorderThickness="1" Padding="8" CornerRadius="7" Margin="0,0,0,5">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -158,7 +158,7 @@
                                         <ColumnDefinition Width="92"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Grid.Column="0" Click="UnifiedResult_Open_Click" Background="Transparent" BorderThickness="0"
-                                            Foreground="#F2F5FB" HorizontalContentAlignment="Stretch" ToolTip="Open video on YouTube">
+                                            Foreground="#F2F5FB" HorizontalContentAlignment="Stretch" ToolTip="Open this track on its music service">
                                         <DockPanel>
                                             <Border DockPanel.Dock="Left" Width="48" Height="34" CornerRadius="5" ClipToBounds="True"
                                                     Background="#252B38" Margin="0,0,9,0">
@@ -170,7 +170,7 @@
                                             </StackPanel>
                                         </DockPanel>
                                     </Button>
-                                    <Button Grid.Column="1" Content="Download" Click="YouTubeResult_Download_Click" Margin="8,0,0,0"
+                                    <Button Grid.Column="1" Content="Download" Click="ProviderResult_Download_Click" Margin="8,0,0,0"
                                             ToolTip="Import audio only if you own it or have permission"/>
                                 </Grid>
                             </Border>
@@ -192,7 +192,7 @@
                                         <TextBlock x:Name="UnifiedQueryHeading" Foreground="{StaticResource WaveMuted}" FontSize="12"/>
                                     </StackPanel>
                                 </DockPanel>
-                                <TextBlock Text="One search for offline music, live YouTube videos via yt-dlp, and saved SoundCloud/Spotify links."
+                                <TextBlock Text="One search for offline music, live YouTube and SoundCloud tracks via yt-dlp, and saved Spotify links."
                                            Foreground="{StaticResource WaveMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7">
                                     <TextBlock Text="Offline" FontSize="17" FontWeight="SemiBold"/>
@@ -206,17 +206,19 @@
                                     <TextBlock Text="YouTube" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="YoutubeSearchCount" Foreground="{StaticResource WaveMuted}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                                 </DockPanel>
-                                <ItemsControl x:Name="YoutubeSearchResults" ItemTemplate="{StaticResource YouTubeSearchResultTemplate}" Margin="0,0,0,4"/>
+                                <ItemsControl x:Name="YoutubeSearchResults" ItemTemplate="{StaticResource ProviderSearchResultTemplate}" Margin="0,0,0,4"/>
                                 <TextBlock x:Name="YouTubeSearchStatus" Text="Type a query to search YouTube using yt-dlp."
                                            FontSize="11" Foreground="{StaticResource WaveMuted}" Margin="0,0,0,14" TextWrapping="Wrap"/>
                                 <Separator Background="#2C3442" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7" LastChildFill="False">
-                                    <Button DockPanel.Dock="Right" Content="Search SoundCloud ↗" Tag="SoundCloud" Click="UnifiedProviderSearch_Click"
-                                            Padding="10,5" ToolTip="See matching SoundCloud results in your browser"/>
+                                    <Button DockPanel.Dock="Right" Content="Search SoundCloud" Click="SoundCloudSearch_Click"
+                                            Padding="10,5" ToolTip="Search SoundCloud within Waveify using yt-dlp"/>
                                     <TextBlock Text="SoundCloud" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="SoundcloudSearchCount" Foreground="{StaticResource WaveMuted}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                                 </DockPanel>
-                                <ItemsControl x:Name="SoundcloudSearchResults" ItemTemplate="{StaticResource UnifiedMusicResultTemplate}" Margin="0,0,0,14"/>
+                                <ItemsControl x:Name="SoundcloudSearchResults" ItemTemplate="{StaticResource ProviderSearchResultTemplate}" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="SoundCloudSearchStatus" Text="Type a query to search SoundCloud using yt-dlp."
+                                           FontSize="11" Foreground="{StaticResource WaveMuted}" Margin="0,0,0,14" TextWrapping="Wrap"/>
                                 <Separator Background="#2C3442" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7" LastChildFill="False">
                                     <Button DockPanel.Dock="Right" Content="Search Spotify ↗" Tag="Spotify" Click="UnifiedProviderSearch_Click"
@@ -246,7 +248,7 @@
                                                     ToolTip="Import authorized music using the installed tools"/>
                                         </Grid>
                                         <TextBlock x:Name="UnifiedStatus" Foreground="{StaticResource WaveMuted}" TextWrapping="Wrap"
-                                                   FontSize="11" Margin="0,8,0,0" Text="YouTube searches run inside Waveify; SoundCloud and Spotify open in your browser."/>
+                                                   FontSize="11" Margin="0,8,0,0" Text="YouTube and SoundCloud search within Waveify; Spotify opens in your browser."/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
