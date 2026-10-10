@@ -37,7 +37,7 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Batch import" Click="BatchImport_Click"><ui:SymbolIcon Symbol="ArrowDownload24"/></Button>
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Setup tools" Click="SetupTools_Click"><ui:SymbolIcon Symbol="Settings24"/></Button>
-                        <Button Style="{StaticResource CircleTopButton}" ToolTip="Toggle equalizer" Click="ToggleEqualizer_Click"><ui:SymbolIcon Symbol="Equalizer24"/></Button>
+                        <Button Style="{StaticResource CircleTopButton}" ToolTip="Toggle equalizer" Click="ToggleEqualizer_Click"><ui:SymbolIcon Symbol="Settings24"/></Button>
                         <Button Style="{StaticResource CircleTopButton}" ToolTip="Import link" Click="ImportLink_Click"><ui:SymbolIcon Symbol="Link24"/></Button>
                         <Border Width="1" Height="20" Background="#2A3345" Margin="10,0"/>
                         <Button Style="{StaticResource FlatNavButton}" Click="WindowMinimize_Click" Content="—" FontSize="16"/>
@@ -101,12 +101,12 @@
                         </StackPanel>
 
                         <StackPanel Grid.Row="3" Margin="0,18,0,0">
-                            <Button Style="{StaticResource SidebarNew}" Click="RecentlyAdded_Click" ToolTip="Recently Added"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Clock24" Margin="0,0,12,0"/><TextBlock Text="Recently Added"/></StackPanel></Button>
-                            <Button Style="{StaticResource SidebarNew}" Click="History_Click" ToolTip="Recently Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="History24" Margin="0,0,12,0"/><TextBlock Text="Recently Played"/></StackPanel></Button>
-                            <Button Style="{StaticResource SidebarNew}" Click="Stats_Click" ToolTip="Most Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ChartMultiple24" Margin="0,0,12,0"/><TextBlock Text="Most Played"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="RecentlyAdded_Click" ToolTip="Recently Added"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowSync24" Margin="0,0,12,0"/><TextBlock Text="Recently Added"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="History_Click" ToolTip="Recently Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Play24" Margin="0,0,12,0"/><TextBlock Text="Recently Played"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="Stats_Click" ToolTip="Most Played"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Grid24" Margin="0,0,12,0"/><TextBlock Text="Most Played"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="SurpriseMe_Click" ToolTip="Surprise me"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="ArrowShuffle24" Margin="0,0,12,0"/><TextBlock Text="Surprise me"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="Unplayed_Click" ToolTip="Unplayed"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="MusicNote224" Margin="0,0,12,0"/><TextBlock Text="Unplayed"/></StackPanel></Button>
-                            <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DocumentCopy24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
+                            <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="TextBulletListSquare24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
                             <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
