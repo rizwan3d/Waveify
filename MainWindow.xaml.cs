@@ -324,6 +324,31 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     // Works across the complete width of every song row, including artwork,
     // title, album, and otherwise empty cells. Do not use a stale selection.
+    // The sidebar wheel scrolls its whole contents, including playlist entries.
+    void SidebarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (SidebarScrollViewer.ScrollableHeight <= 0) return;
+        SidebarScrollViewer.ScrollToVerticalOffset(
+            Math.Clamp(SidebarScrollViewer.VerticalOffset - e.Delta / 3.0,
+                0, SidebarScrollViewer.ScrollableHeight));
+        e.Handled = true;
+    }
+
+    // Use the song list's own scrollbar first, then move the middle panel
+    // when scrolling beyond the first or last song.
+    void SongList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var inner = SongList.Template.FindName("PART_ScrollViewer", SongList) as ScrollViewer;
+        if (inner == null) return;
+        bool atStart = e.Delta > 0 && inner.VerticalOffset <= 0;
+        bool atEnd = e.Delta < 0 && inner.VerticalOffset >= inner.ScrollableHeight;
+        if (!atStart && !atEnd) return;
+        CenterScrollViewer.ScrollToVerticalOffset(
+            Math.Clamp(CenterScrollViewer.VerticalOffset - e.Delta / 3.0,
+                0, CenterScrollViewer.ScrollableHeight));
+        e.Handled = true;
+    }
+
     void SongList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         var item = FindSongRow(e.OriginalSource as DependencyObject);
@@ -1382,7 +1407,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void UpdateViewMode()
     {
         SongList.Visibility = gridView ? Visibility.Collapsed : Visibility.Visible;
-        SongGrid.Visibility = gridView ? Visibility.Visible : Visibility.Collapsed;
+        SongGridScrollViewer.Visibility = gridView ? Visibility.Visible : Visibility.Collapsed;
     }
     void SeeAll_Click(object sender, RoutedEventArgs e)
     {
