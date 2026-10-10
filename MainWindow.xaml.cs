@@ -324,29 +324,68 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     // Works across the complete width of every song row, including artwork,
     // title, album, and otherwise empty cells. Do not use a stale selection.
-    // The sidebar wheel scrolls its whole contents, including playlist entries.
-    void SidebarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    // Share one wheel policy across the sidebar, song list and central library.
+    // This uses line scrolling so a virtualized ListView keeps its logical units.
+    static bool TryWheelScroll(ScrollViewer scroll, int delta)
     {
-        if (SidebarScrollViewer.ScrollableHeight <= 0) return;
-        SidebarScrollViewer.ScrollToVerticalOffset(
-            Math.Clamp(SidebarScrollViewer.VerticalOffset - e.Delta / 3.0,
-                0, SidebarScrollViewer.ScrollableHeight));
-        e.Handled = true;
+        if (scroll.ScrollableHeight <= 0 || delta == 0) return false;
+        if (delta > 0 && scroll.VerticalOffset <= 0) return false;
+        if (delta < 0 && scroll.VerticalOffset >= scroll.ScrollableHeight) return false;
+
+        int lines = SystemParameters.WheelScrollLines;
+        if (lines < 0)
+        {
+            if (delta > 0) scroll.PageUp(); else scroll.PageDown();
+        }
+        else
+        {
+            int count = Math.Max(1, (int)Math.Ceiling(Math.Abs(delta) / 120.0 * Math.Max(1, lines)));
+            for (int i = 0; i < count; i++)
+            {
+                if (delta > 0) scroll.LineUp(); else scroll.LineDown();
+            }
+        }
+        return true;
     }
 
-    // Use the song list's own scrollbar first, then move the middle panel
-    // when scrolling beyond the first or last song.
-    void SongList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    static ScrollViewer? FindNestedScrollViewer(DependencyObject root)
     {
-        var inner = SongList.Template.FindName("PART_ScrollViewer", SongList) as ScrollViewer;
-        if (inner == null) return;
-        bool atStart = e.Delta > 0 && inner.VerticalOffset <= 0;
-        bool atEnd = e.Delta < 0 && inner.VerticalOffset >= inner.ScrollableHeight;
-        if (!atStart && !atEnd) return;
-        CenterScrollViewer.ScrollToVerticalOffset(
-            Math.Clamp(CenterScrollViewer.VerticalOffset - e.Delta / 3.0,
-                0, CenterScrollViewer.ScrollableHeight));
-        e.Handled = true;
+        if (root is ScrollViewer scroll) return scroll;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var found = FindNestedScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    ScrollViewer? songListScrollViewer;
+
+    void SidebarScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (TryWheelScroll(SidebarScrollViewer, e.Delta)) e.Handled = true;
+    }
+
+    // Catch wheel events before child ListView / ScrollViewer controls consume
+    // them. At the edge of the song list, scrolling continues in the center.
+    void CenterScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (SongList.IsVisible && SongList.IsMouseOver)
+        {
+            songListScrollViewer ??= FindNestedScrollViewer(SongList);
+            if (songListScrollViewer != null && TryWheelScroll(songListScrollViewer, e.Delta))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+        if (SongGridScrollViewer.IsVisible && SongGridScrollViewer.IsMouseOver &&
+            TryWheelScroll(SongGridScrollViewer, e.Delta))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (TryWheelScroll(CenterScrollViewer, e.Delta)) e.Handled = true;
     }
 
     void SongList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
