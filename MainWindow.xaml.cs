@@ -846,7 +846,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             output = CreateAudioOutput();
             equalizer = new EqualizerProvider(reader);
             equalizer.SetGain(EqualizerSlider.Value);
-            output.Init(equalizer);
+            output.Init(new SampleToWaveProvider(equalizer));
             int generation = playbackGeneration;
             var playingReader = reader;
             output.PlaybackStopped += (_, args) => Dispatcher.BeginInvoke(() =>
