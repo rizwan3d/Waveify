@@ -106,8 +106,13 @@ internal static class DdgsDependency
                 try { await process.WaitForExitAsync(timeout.Token); }
                 catch (OperationCanceledException)
                 {
-                    if (!process.HasExited) process.Kill(entireProcessTree: true);
-                    throw;
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync();
+                    }
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    throw new TimeoutException("ddgs installation timed out after 5 minutes.");
                 }
                 string log = await output;
                 string errorLog = await errors;
@@ -141,9 +146,18 @@ internal static class DdgsDependency
         }
         finally
         {
-            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
-            if (Directory.Exists(backup) && Directory.Exists(PackageFolder))
-                Directory.Delete(backup, recursive: true);
+            // Cleanup is best effort: antivirus scans can briefly hold wheel files
+            // open on Windows and should not report a successful install as failed.
+            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            try
+            {
+                if (Directory.Exists(backup) && Directory.Exists(PackageFolder))
+                    Directory.Delete(backup, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 }
