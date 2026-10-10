@@ -7,7 +7,7 @@ namespace Waveify;
 /// <summary>
 /// Queries the independent wolfXspotify-API for public Spotify track metadata.
 /// Does not obtain Spotify tokens, play audio, or download protected content.
-/// No Python, ddgs, or additional local tools are required.
+/// No additional local search tools are required.
 /// </summary>
 internal sealed record WolfSpotifyHit(
     string Title, string Artist, string Url, string ArtworkUrl, int DurationSeconds);
