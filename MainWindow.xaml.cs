@@ -55,6 +55,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     IReadOnlyList<SoundCloudSearchHit> liveSoundCloudHits = Array.Empty<SoundCloudSearchHit>();
     string liveSoundCloudQuery = "";
     readonly ObservableCollection<SongRow> spotifySearchRows = new();
+    readonly DispatcherTimer spotifySearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(1100) };
+    CancellationTokenSource? spotifySearchCancellation;
+    IReadOnlyList<SpotifySearchHit> liveSpotifyHits = Array.Empty<SpotifySearchHit>();
+    string liveSpotifyQuery = "";
     readonly ObservableCollection<SongRow> queueRows = new();
     bool gridView;
     string artistFilter = "", albumFilter = "", genreFilter = "";
@@ -100,6 +104,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             soundcloudSearchDebounce.Stop();
             await SearchSoundCloudAsync();
         };
+        spotifySearchDebounce.Tick += async (_, _) =>
+        {
+            spotifySearchDebounce.Stop();
+            await SearchSpotifyAsync();
+        };
         timer.Start();
         Refresh();
         RefreshAudioDevices();
@@ -109,7 +118,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         UpdateShuffleButtons();
         UpdateCurrentLikeButton();
         Loaded += MainWindow_Loaded;
-        Closed += (_, _) => { youtubeSearchDebounce.Stop(); soundcloudSearchDebounce.Stop(); youtubeSearchCancellation?.Cancel(); soundcloudSearchCancellation?.Cancel(); SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
+        Closed += (_, _) => { youtubeSearchDebounce.Stop(); soundcloudSearchDebounce.Stop(); spotifySearchDebounce.Stop(); youtubeSearchCancellation?.Cancel(); soundcloudSearchCancellation?.Cancel(); spotifySearchCancellation?.Cancel(); SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
     }
     async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -319,19 +328,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (!IsLoaded || rows == null) return;
         youtubeSearchDebounce.Stop();
         soundcloudSearchDebounce.Stop();
+        spotifySearchDebounce.Stop();
         youtubeSearchCancellation?.Cancel();
         soundcloudSearchCancellation?.Cancel();
+        spotifySearchCancellation?.Cancel();
         liveYouTubeQuery = "";
         liveYouTubeHits = Array.Empty<YouTubeSearchHit>();
         liveSoundCloudQuery = "";
         liveSoundCloudHits = Array.Empty<SoundCloudSearchHit>();
+        liveSpotifyQuery = "";
+        liveSpotifyHits = Array.Empty<SpotifySearchHit>();
         Refresh();
         if (SearchBox.Text.Trim().Length > 0)
         {
             YouTubeSearchStatus.Text = "Searching YouTube with yt-dlp…";
             SoundCloudSearchStatus.Text = "Searching SoundCloud with yt-dlp…";
+            SpotifySearchStatus.Text = "Searching public Spotify pages with ddgs…";
             youtubeSearchDebounce.Start();
             soundcloudSearchDebounce.Start();
+            spotifySearchDebounce.Start();
         }
     }
 
@@ -353,6 +368,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             spotifySearchRows.Clear();
             YouTubeSearchStatus.Text = "Type a query to search YouTube using yt-dlp.";
             SoundCloudSearchStatus.Text = "Type a query to search SoundCloud using yt-dlp.";
+            SpotifySearchStatus.Text = "Type a query to search Spotify using Python ddgs.";
             return;
         }
 
@@ -410,10 +426,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
         }
 
+        if (string.Equals(liveSpotifyQuery, query, StringComparison.OrdinalIgnoreCase))
+        {
+            var knownUrls = spotifySearchRows.Select(row => row.Song.SourceUrl)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var hit in liveSpotifyHits)
+            {
+                if (!knownUrls.Add(hit.Url)) continue;
+                var result = new Song
+                {
+                    Title = hit.Title, Artist = hit.Detail, SourceUrl = hit.Url
+                };
+                spotifySearchRows.Add(new SongRow(result, spotifySearchRows.Count + 1));
+            }
+        }
+
         OfflineSearchCount.Text = $"{offlineSearchRows.Count} local matches";
         YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} links + videos";
         SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} links + tracks";
-        SpotifySearchCount.Text = $"{spotifySearchRows.Count} saved links";
+        SpotifySearchCount.Text = $"{spotifySearchRows.Count} links + web results";
         CenterScrollViewer.ScrollToTop();
     }
 
@@ -908,7 +939,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             return;
         var host = uri.Host.ToLowerInvariant();
         if (!IsHost(host, "youtube.com") && !IsHost(host, "youtu.be") &&
-            !IsHost(host, "soundcloud.com")) return;
+            !IsHost(host, "soundcloud.com") && !IsHost(host, "spotify.com")) return;
 
         UnifiedUrlBox.Text = row.Song.SourceUrl;
         UnifiedDownload_Click(sender, new RoutedEventArgs());
@@ -959,6 +990,49 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             if (ReferenceEquals(soundcloudSearchCancellation, cancellation))
                 soundcloudSearchCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    async void SpotifySearch_Click(object sender, RoutedEventArgs e)
+    {
+        spotifySearchDebounce.Stop();
+        await SearchSpotifyAsync();
+    }
+
+    async Task SearchSpotifyAsync()
+    {
+        string query = SearchBox.Text.Trim();
+        spotifySearchCancellation?.Cancel();
+        if (query.Length == 0) return;
+
+        var cancellation = new CancellationTokenSource();
+        spotifySearchCancellation = cancellation;
+        SpotifySearchStatus.Text = "Searching Spotify web results with ddgs…";
+        try
+        {
+            var hits = await SpotifySearch.SearchAsync(query, cancellation.Token);
+            if (!ReferenceEquals(spotifySearchCancellation, cancellation) ||
+                !string.Equals(query, SearchBox.Text.Trim(), StringComparison.Ordinal))
+                return;
+
+            liveSpotifyQuery = query;
+            liveSpotifyHits = hits;
+            RefreshUnifiedSearch(query);
+            SpotifySearchStatus.Text = hits.Count == 0
+                ? "No indexed Spotify pages found. Try another query or search on Spotify."
+                : $"Found {hits.Count} Spotify web results. Open a result, or download audio you own or have permission to save.";
+        }
+        catch (OperationCanceledException) { /* Superseded by a newer query. */ }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(spotifySearchCancellation, cancellation))
+                SpotifySearchStatus.Text = "Spotify search unavailable: " + ex.Message;
+        }
+        finally
+        {
+            if (ReferenceEquals(spotifySearchCancellation, cancellation))
+                spotifySearchCancellation = null;
             cancellation.Dispose();
         }
     }
