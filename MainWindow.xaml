@@ -192,7 +192,7 @@
                                         <TextBlock x:Name="UnifiedQueryHeading" Foreground="{StaticResource WaveMuted}" FontSize="12"/>
                                     </StackPanel>
                                 </DockPanel>
-                                <TextBlock Text="One search for offline music, YouTube and SoundCloud via yt-dlp, and Spotify pages via ddgs."
+                                <TextBlock Text="One search for offline music, YouTube and SoundCloud via yt-dlp, and Spotify tracks via wolfXspotify API."
                                            Foreground="{StaticResource WaveMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7">
                                     <TextBlock Text="Offline" FontSize="17" FontWeight="SemiBold"/>
@@ -222,12 +222,12 @@
                                 <Separator Background="#2C3442" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7" LastChildFill="False">
                                     <Button DockPanel.Dock="Right" Content="Search Spotify" Click="SpotifySearch_Click"
-                                            Padding="10,5" ToolTip="Search public Spotify pages within Waveify using ddgs"/>
+                                            Padding="10,5" ToolTip="Search Spotify tracks directly using wolfXspotify API"/>
                                     <TextBlock Text="Spotify" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="SpotifySearchCount" Foreground="{StaticResource WaveMuted}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                                 </DockPanel>
                                 <ItemsControl x:Name="SpotifySearchResults" ItemTemplate="{StaticResource ProviderSearchResultTemplate}" Margin="0,0,0,4"/>
-                                <TextBlock x:Name="SpotifySearchStatus" Text="Type a query to search Spotify using Python ddgs."
+                                <TextBlock x:Name="SpotifySearchStatus" Text="Type a query to search Spotify tracks using wolfXspotify API."
                                            FontSize="11" Foreground="{StaticResource WaveMuted}" Margin="0,0,0,14" TextWrapping="Wrap"/>
                                 <Border Background="#1A202B" BorderBrush="#303848" BorderThickness="1" CornerRadius="10"
                                         Padding="12" Margin="0,8,0,0">
@@ -250,7 +250,7 @@
                                                     ToolTip="Import authorized music using the installed tools"/>
                                         </Grid>
                                         <TextBlock x:Name="UnifiedStatus" Foreground="{StaticResource WaveMuted}" TextWrapping="Wrap"
-                                                   FontSize="11" Margin="0,8,0,0" Text="YouTube and SoundCloud use yt-dlp. Spotify search uses the optional Python ddgs package."/>
+                                                   FontSize="11" Margin="0,8,0,0" Text="YouTube and SoundCloud use yt-dlp. Spotify search uses the wolfXspotify API without Python."/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
