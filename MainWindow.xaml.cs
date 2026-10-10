@@ -750,7 +750,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     { if (SongList.SelectedItem is SongRow row) StartSong(row.Song); }
     void PlayAll_Click(object sender, RoutedEventArgs e)
     { if (rows.FirstOrDefault(r => File.Exists(r.Song.FilePath)) is { } row) StartSong(row.Song); else MessageBox.Show("No playable local tracks in this view."); }
-    void StartSong(Song song)
+    void StartSong(Song song, bool preserveQueue = false)
     {
         if (string.IsNullOrEmpty(song.FilePath) || !File.Exists(song.FilePath))
         {
@@ -772,9 +772,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (current != null && reader != null)
                 playerSettings.LastPositionSeconds = reader.CurrentTime.TotalSeconds;
             Stop();
-            // Keep the active queue when auto-advancing or repeating; otherwise
-            // use the selected list if this is a new track selection.
-            if (!queue.Any(x => x.Id == song.Id))
+            // User selections should play through the visible view, such as the
+            // selected playlist. Auto-advance and repeat keep the active queue.
+            if (!preserveQueue)
                 queue = rows.Select(r => r.Song).Where(x => File.Exists(x.FilePath)).ToList();
             reader = new AudioFileReader(song.FilePath) { Volume = (float)Volume.Value };
             if (!restoredPositionConsumed && playerSettings.LastTrackId == song.Id
@@ -870,7 +870,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (automatic && repeatMode == 2)
         {
             playerSettings.LastPositionSeconds = 0;
-            StartSong(current);
+            StartSong(current, preserveQueue: true);
             return;
         }
         int idx = queue.FindIndex(x => x.Id == current.Id);
@@ -899,7 +899,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         else next = (idx + 1) % queue.Count;
         playerSettings.LastPositionSeconds = 0;
-        StartSong(queue[next]);
+        StartSong(queue[next], preserveQueue: true);
     }
     void Next_Click(object sender, RoutedEventArgs e) => NextTrack(false);
     void Previous_Click(object sender, RoutedEventArgs e)
@@ -907,7 +907,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (reader != null && reader.CurrentTime.TotalSeconds > 3) { reader.CurrentTime = TimeSpan.Zero; return; }
         if (queue.Count == 0 || current == null) return;
         int idx = queue.FindIndex(x => x.Id == current.Id);
-        StartSong(queue[(idx - 1 + queue.Count) % queue.Count]);
+        StartSong(queue[(idx - 1 + queue.Count) % queue.Count], preserveQueue: true);
     }
     void Shuffle_Click(object sender, RoutedEventArgs e)
     {
