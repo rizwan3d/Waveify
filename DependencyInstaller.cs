@@ -35,6 +35,7 @@ internal static class DependencyInstaller
 
     public static bool IsAvailable(string name)
     {
+        if (name == "ddgs") return DdgsDependency.IsAvailable();
         var filename = ExecutableName(name);
         if (File.Exists(Path.Combine(ToolsFolder, filename)) || File.Exists(Path.Combine(AppContext.BaseDirectory, filename))) return true;
         // Older installers may have left the GUI binary; don't count that as the CLI.
@@ -60,6 +61,10 @@ internal static class DependencyInstaller
 
     public static async Task<string> InstallAsync(string name, IProgress<InstallProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        // ddgs is distributed on PyPI rather than as a signed GitHub executable.
+        // Its dedicated installer uses the user's existing Python interpreter and
+        // stores the package in Waveify's local tools folder after approval.
+        if (name == "ddgs") return await DdgsDependency.InstallAsync(progress, cancellationToken);
         string repo = name switch
         {
             "yt-dlp" => "yt-dlp/yt-dlp",
