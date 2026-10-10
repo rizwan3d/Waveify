@@ -18,7 +18,7 @@ import sys
 try:
     from ddgs import DDGS
 except ImportError:
-    print("Python package 'ddgs' is missing. Install it with: py -3 -m pip install -U ddgs", file=sys.stderr)
+    print("Python package 'ddgs' is missing. Install it with Waveify Setup tools.", file=sys.stderr)
     sys.exit(2)
 
 query = sys.argv[1].strip()[:160]
@@ -43,24 +43,13 @@ except Exception as ex:
         if (query.Length == 0) return Array.Empty<SpotifySearchHit>();
         if (query.Length > 160) query = query[..160];
 
-        string output;
-        try
-        {
-            // 'py -3' selects an installed Python 3 on Windows.
-            output = await SearchWithPythonAsync("py", useWindowsLauncher: true, query, cancellationToken);
-        }
-        catch (Win32Exception)
-        {
-            try
-            {
-                output = await SearchWithPythonAsync("python", useWindowsLauncher: false, query, cancellationToken);
-            }
-            catch (Win32Exception ex)
-            {
-                throw new InvalidOperationException(
-                    "Python 3.10+ is required. Install Python, then run: py -3 -m pip install -U ddgs", ex);
-            }
-        }
+        // Match the interpreter used by Setup tools and load Waveify's
+        // private Python package directory without altering system packages.
+        var python = await Task.Run(() => DdgsDependency.FindPython(), cancellationToken);
+        if (python == null)
+            throw new InvalidOperationException(
+                "Python 3.10+ is required for Spotify search. Install Python, then use Setup tools.");
+        string output = await SearchWithPythonAsync(python.Value, query, cancellationToken);
 
         try
         {
@@ -92,16 +81,9 @@ except Exception as ex:
     }
 
     private static async Task<string> SearchWithPythonAsync(
-        string executable, bool useWindowsLauncher, string query, CancellationToken cancellationToken)
+        DdgsDependency.PythonRuntime python, string query, CancellationToken cancellationToken)
     {
-        var start = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        if (useWindowsLauncher) start.ArgumentList.Add("-3");
+        var start = DdgsDependency.BuildStartInfo(python);
         start.ArgumentList.Add("-c");
         start.ArgumentList.Add(PythonCode);
         start.ArgumentList.Add(query); // ArgumentList prevents shell/flag injection.
@@ -120,7 +102,7 @@ except Exception as ex:
             if (process.ExitCode != 0)
                 throw new InvalidOperationException(error.Length > 0
                     ? error[..Math.Min(error.Length, 450)]
-                    : "Python Spotify search failed. Ensure Python 3.10+ and ddgs are installed.");
+                    : "Python Spotify search failed. Install Python 3.10+ and choose Setup tools.");
             return output;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
