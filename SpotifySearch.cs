@@ -146,14 +146,17 @@ except Exception as ex:
             return "";
 
         var segments = uri.AbsolutePath.Trim('/').Split('/');
+        // Search engines often index /intl-en/track/... links. Normalize those
+        // to the canonical form understood by the existing Spotify importer.
+        if (segments.Length == 3 && segments[0].StartsWith("intl-", StringComparison.OrdinalIgnoreCase))
+            segments = segments[1..];
         if (segments.Length != 2 ||
             !new[] { "track", "album", "playlist" }.Contains(segments[0], StringComparer.OrdinalIgnoreCase) ||
             segments[1].Length != 22 ||
-            !segments[1].All(char.IsLetterOrDigit))
+            !segments[1].All(c => c is >= '0' and <= '9' or >= 'A' and <= 'Z' or >= 'a' and <= 'z'))
             return "";
 
-        // Strip tracking and unrelated URL parameters; this also matches
-        // the canonical URL format accepted by Waveify's import tool.
+        // Strip tracking parameters and localize-free paths.
         return $"https://open.spotify.com/{segments[0].ToLowerInvariant()}/{segments[1]}";
     }
 
