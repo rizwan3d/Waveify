@@ -102,12 +102,13 @@
                         <StackPanel Grid.Row="3" Margin="0,18,0,0">
                             <Button Content="Recently Added" Click="RecentlyAdded_Click" Margin="0,0,0,5"/>
                             <Button Content="Recently Played" Click="History_Click" Margin="0,0,0,8"/>
+                            <Button Content="Most Played" Click="Stats_Click" Margin="0,0,0,8"/>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
                             <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="4,4,2,4">
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/></Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
                                             <Border Width="36" Height="36" CornerRadius="6" ClipToBounds="True" Background="#1A2232">
                                                 <Grid>
                                                     <ui:SymbolIcon Symbol="MusicNote224" Foreground="#B6C2D8" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -116,9 +117,9 @@
                                             </Border>
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
                                                 <TextBlock Text="{Binding Playlist.Name}" FontWeight="SemiBold" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="Playlist" FontSize="10" Foreground="{StaticResource WaveMuted}"/>
+                                                <TextBlock Text="{Binding Playlist.SongIds.Count, StringFormat={}{0} songs}" FontSize="10" Foreground="{StaticResource WaveMuted}"/>
                                             </StackPanel>
-                                            <Button Grid.Column="2" Content="View" ToolTip="View playlist songs" Click="ViewPlaylist_Click" Padding="7,4" FontSize="11" MinWidth="46" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                            <Button Grid.Column="2" Content="View" ToolTip="View playlist songs" Click="ViewPlaylist_Click" Padding="7,4" FontSize="11" MinWidth="46" VerticalAlignment="Center" HorizontalAlignment="Center"/><Button Grid.Column="3" Content="⋮" ToolTip="Playlist options" Click="PlaylistContextMenu_Click" Padding="3" VerticalAlignment="Center"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -165,7 +166,7 @@
                             </Grid>
                         </Border>
 
-                        <DockPanel Margin="8,0,8,12"><TextBlock DockPanel.Dock="Right" Text="See all →" Foreground="#D7DFEF" VerticalAlignment="Center" FontSize="13"/><StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                        <DockPanel Margin="8,0,8,12"><Button DockPanel.Dock="Right" Content="See all →" Click="SeeAll_Click" FontSize="13"/><StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                                 <TextBlock Text="Hottest in your library" FontSize="20" FontWeight="Bold"/>
                                 <TextBlock Text="  Local releases" Foreground="{StaticResource WaveMuted}" VerticalAlignment="Bottom" FontSize="13" Margin="1,0,0,1"/>
                             </StackPanel></DockPanel>
@@ -255,8 +256,8 @@
                             </StackPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                 <ComboBox x:Name="SortBox" Width="135" Margin="0,0,8,0" SelectionChanged="SortBox_SelectionChanged"><ComboBoxItem Content="Playlist order"/><ComboBoxItem Content="Title"/><ComboBoxItem Content="Artist"/><ComboBoxItem Content="Date added"/></ComboBox>
-                                <Button Style="{StaticResource SmallRoundButton}" ToolTip="List view"><ui:SymbolIcon Symbol="TextBulletListSquare24"/></Button>
-                                <Button Style="{StaticResource SmallRoundButton}" ToolTip="Grid view"><ui:SymbolIcon Symbol="Grid24"/></Button>
+                                <Button Style="{StaticResource SmallRoundButton}" ToolTip="List view" Click="ListView_Click"><ui:SymbolIcon Symbol="TextBulletListSquare24"/></Button>
+                                <Button Style="{StaticResource SmallRoundButton}" ToolTip="Grid view" Click="GridView_Click"><ui:SymbolIcon Symbol="Grid24"/></Button>
                                 <Border Width="210" Height="34" Background="#20242F" BorderBrush="#313746" BorderThickness="1" CornerRadius="12" Margin="10,0,0,0">
                                     <DockPanel Margin="12,0">
                                         <ui:SymbolIcon Symbol="Search24" Foreground="#8390A7" Margin="0,0,8,0" VerticalAlignment="Center"/>
@@ -266,6 +267,8 @@
                             </StackPanel>
                         </DockPanel>
 
+                        <ItemsControl x:Name="SongGrid" Visibility="Collapsed" ItemsSource="{Binding ElementName=SongList,Path=ItemsSource}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Button Width="150" Height="70" Margin="5" Click="SongCard_Play_Click"><StackPanel><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Artist}" FontSize="11" TextTrimming="CharacterEllipsis"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <WrapPanel Margin="8,2"><TextBox x:Name="ArtistFilter" Width="90" ToolTip="Artist filter"/><TextBox x:Name="AlbumFilter" Width="90" ToolTip="Album filter"/><TextBox x:Name="GenreFilter" Width="90" ToolTip="Genre filter"/><TextBox x:Name="YearFilter" Width="55" ToolTip="Year"/><CheckBox x:Name="LikedFilter" Content="Liked"/><CheckBox x:Name="LocalFilter" Content="Local"/><Button Content="Filter" Click="ApplyFilters_Click"/><Button Content="Reset" Click="ResetFilters_Click"/></WrapPanel>
                         <ListView x:Name="SongList" AllowDrop="True" PreviewMouseLeftButtonDown="SongList_PreviewMouseLeftButtonDown" MouseMove="SongList_MouseMove" Drop="SongList_Drop" ContextMenuOpening="SongList_ContextMenuOpening" PreviewMouseRightButtonDown="SongList_PreviewMouseRightButtonDown" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="SongList_MouseDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemContainerStyle="{StaticResource MusicTrackRow}">
                             <ListView.View>
                                 <GridView>
@@ -331,14 +334,13 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <StackPanel Grid.Row="3" Margin="0,24,0,0">
+                        <StackPanel x:Name="QueuePanel" Grid.Row="3" Margin="0,24,0,0">
                             <Border Height="1" Background="#212A39" Margin="0,0,0,12"/>
                             <DockPanel Margin="0,0,0,10">
                                 <TextBlock Text="Up Next" FontSize="14" FontWeight="Bold"/>
-                                <TextBlock DockPanel.Dock="Right" Text="Clear" Foreground="{StaticResource WaveMuted}" FontSize="12" VerticalAlignment="Center"/>
+                                <Button DockPanel.Dock="Right" Content="Clear" Click="ClearQueue_Click" FontSize="12"/>
                             </DockPanel>
-                            <ItemsControl ItemsSource="{Binding ElementName=SongList,Path=ItemsSource}">
-                                <ItemsControl.ItemTemplate>
+                            <ListView x:Name="QueueList" Height="190" Background="Transparent" BorderThickness="0" MouseDoubleClick="QueueSong_DoubleClick"><ListView.ItemTemplate>
                                     <DataTemplate>
                                         <DockPanel Margin="0,0,0,15" MouseRightButtonUp="SongCard_MouseRightButtonUp">
                                             <Border DockPanel.Dock="Left" Width="43" Height="43" CornerRadius="5" ClipToBounds="True" Margin="0,0,10,0"><Image Source="{Binding Artwork}" Stretch="UniformToFill"/></Border>
@@ -350,7 +352,8 @@
                                         </DockPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            </ListView>
+                            <StackPanel Orientation="Horizontal"><Button Content="Move up" Click="QueueMoveUp_Click"/><Button Content="Remove" Click="QueueRemove_Click"/></StackPanel>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -401,7 +404,7 @@
                     </Grid>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Style="{StaticResource PlayerButton}" ToolTip="Queue"><ui:SymbolIcon Symbol="TextBulletListSquare24"/></Button>
+                        <Button Style="{StaticResource PlayerButton}" ToolTip="Queue" Click="Queue_Click"><ui:SymbolIcon Symbol="TextBulletListSquare24"/></Button>
                         <TextBlock Text="Bass" Foreground="White" VerticalAlignment="Center" Margin="5,0"/><Slider x:Name="EqualizerSlider" Width="65" Minimum="-12" Maximum="12" Value="0" ValueChanged="EqualizerSlider_ValueChanged" ToolTip="Bass EQ (dB)"/>
                         <Button x:Name="DevicePickerButton" Click="DevicePickerButton_Click" Style="{StaticResource PlayerButton}" ToolTip="Choose output device"><ui:SymbolIcon Symbol="Headphones24"/></Button>
                         <Border x:Name="OutputPickerHost" Background="#1A202B" CornerRadius="10" Padding="4" Visibility="Collapsed" Margin="6,0,6,0"><ComboBox x:Name="OutputDeviceCombo" Width="170" ToolTip="Select output device" SelectionChanged="OutputDeviceCombo_SelectionChanged"/></Border>
