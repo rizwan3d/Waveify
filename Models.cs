@@ -33,6 +33,7 @@ public class LibraryData
 {
     public List<Song> Songs { get; set; } = new();
     public List<Playlist> Playlists { get; set; } = new();
+    public List<Guid> PlaybackHistory { get; set; } = new();
 }
 public static class LibraryStore
 {
