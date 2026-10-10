@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using NAudio.CoreAudioApi;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -35,6 +36,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     bool updatingProgress;
     bool refreshingPlaylistRows;
     AudioFileReader? reader;
+    EqualizerProvider? equalizer;
+    string sortMode = "Playlist order";
+    bool recentOnly, historyOnly;
+    Point dragStart;
+    SongRow? draggedSong;
     Song? current;
     List<Song> queue = new();
     Playlist? selectedPlaylist;
@@ -51,6 +57,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         selectedOutputId = playerSettings.OutputDeviceId;
         SongList.ItemsSource = rows;
         PlaylistList.ItemsSource = playlistRows;
+        SortBox.SelectedIndex = 0;
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         timer.Tick += (_, _) => UpdateProgress();
         timer.Start();
         Refresh();
@@ -203,14 +211,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         IEnumerable<Song> songs = library.Songs;
         if (selectedPlaylist != null) songs = songs.Where(s => selectedPlaylist.SongIds.Contains(s.Id));
         if (likedOnly) songs = songs.Where(s => s.Liked);
+        if (recentOnly) songs = songs.OrderByDescending(s => s.DateAddedUtc ?? DateTime.MinValue).Take(50);
+        if (historyOnly) songs = library.PlaybackHistory.Select(id => library.Songs.FirstOrDefault(s => s.Id == id)).OfType<Song>();
         var search = SearchBox.Text?.Trim();
         if (!string.IsNullOrEmpty(search)) songs = songs.Where(s => (s.Title + " " + s.Artist + " " + s.Album).Contains(search, StringComparison.OrdinalIgnoreCase));
+        songs = sortMode switch
+        {
+            "Title" => songs.OrderBy(s => s.Title, StringComparer.OrdinalIgnoreCase),
+            "Artist" => songs.OrderBy(s => s.Artist, StringComparer.OrdinalIgnoreCase).ThenBy(s => s.Title),
+            "Date added" => songs.OrderByDescending(s => s.DateAddedUtc ?? DateTime.MinValue),
+            _ when selectedPlaylist != null && !recentOnly && !historyOnly => songs.OrderBy(s => selectedPlaylist.SongIds.IndexOf(s.Id)),
+            _ => songs
+        };
         var previousId = (SongList.SelectedItem as SongRow)?.Song.Id;
         rows.Clear();
         int n = 1;
         foreach (var song in songs) rows.Add(new SongRow(song, n++));
         if (previousId != null) SongList.SelectedItem = rows.FirstOrDefault(s => s.Song.Id == previousId);
-        HomeShelves.Visibility = Visibility.Collapsed;
+        HomeShelves.Visibility = selectedPlaylist == null && !likedOnly && !recentOnly && !historyOnly && string.IsNullOrWhiteSpace(search)
+            ? Visibility.Visible : Visibility.Collapsed;
         if (HomeShelves.Visibility == Visibility.Visible)
         {
             var valid = library.Songs.Where(x => !string.IsNullOrWhiteSpace(x.FilePath) && System.IO.File.Exists(x.FilePath)).ToList();
@@ -219,7 +238,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             GenreShelves.ItemsSource = valid.GroupBy(x => string.IsNullOrWhiteSpace(x.Genre) ? "Unknown genre" : x.Genre, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
         }
-        Heading.Text = selectedPlaylist?.Name ?? (likedOnly ? "Liked Songs" : "k");
+        AlbumShelves.ItemsSource = library.Songs.Where(s => File.Exists(s.FilePath))
+            .GroupBy(s => string.IsNullOrWhiteSpace(s.Album) ? "Unknown album" : s.Album, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
+        Heading.Text = selectedPlaylist?.Name ?? (recentOnly ? "Recently Added" : historyOnly ? "Recently Played" : likedOnly ? "Liked Songs" : "Library");
         SubHeading.Text = $"{rows.Count} tracks · Double-click a local track to play";
     }
     void ShelfTrack_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -227,13 +249,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (e.ClickCount == 2 && sender is FrameworkElement element && element.DataContext is SongRow row)
             StartSong(row.Song);
     }
-    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
-    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
+    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
+    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (rows != null) Refresh(); }
     void ShowPlaylist(Playlist playlist)
     {
         selectedPlaylist = playlist;
-        likedOnly = false;
+        likedOnly = recentOnly = historyOnly = false;
         SearchBox.Clear();
         PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, playlist));
         Refresh();
@@ -351,6 +373,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             add.Items.Add(item);
         }
         menu.Items.Add(add);
+        var edit = new MenuItem { Header = "Edit metadata" };
+        edit.Click += (_, _) => EditMetadata(song);
+        menu.Items.Add(edit);
+        if (selectedPlaylist != null && selectedPlaylist.SongIds.Contains(song.Id))
+        {
+            var removeFromPlaylist = new MenuItem { Header = "Remove from this playlist" };
+            removeFromPlaylist.Click += (_, _) => { selectedPlaylist.SongIds.Remove(song.Id); Save(); Refresh(); };
+            menu.Items.Add(removeFromPlaylist);
+        }
         menu.Items.Add(new Separator());
         var remove = new MenuItem { Header = "Remove from library" };
         remove.Click += (_, _) =>
@@ -813,7 +844,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             restoredPositionConsumed = true;
             output = CreateAudioOutput();
-            output.Init(reader);
+            equalizer = new EqualizerProvider(reader);
+            equalizer.SetGain(EqualizerSlider.Value);
+            output.Init(equalizer);
             int generation = playbackGeneration;
             var playingReader = reader;
             output.PlaybackStopped += (_, args) => Dispatcher.BeginInvoke(() =>
@@ -831,6 +864,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     SetPlayIcon(false);
             });
             current = song; NowTitle.Text = song.Title; NowArtist.Text = song.Artist;
+            library.PlaybackHistory.Remove(song.Id);
+            library.PlaybackHistory.Insert(0, song.Id);
+            if (library.PlaybackHistory.Count > 100) library.PlaybackHistory.RemoveRange(100, library.PlaybackHistory.Count - 100);
+            Save();
             playerSettings.LastTrackId = song.Id;
             NowArtwork.Source = LoadArtwork(song);
             UpdateCurrentLikeButton();
@@ -1135,6 +1172,87 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         MaxRestoreButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+    }
+
+
+    void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SortBox.SelectedItem is ComboBoxItem item)
+        {
+            sortMode = item.Content?.ToString() ?? "Playlist order";
+            if (rows != null && SongList != null) Refresh();
+        }
+    }
+    void RecentlyAdded_Click(object sender, RoutedEventArgs e)
+    {
+        selectedPlaylist = null; likedOnly = historyOnly = false; recentOnly = true;
+        PlaylistList.SelectedItem = null; Refresh();
+    }
+    void History_Click(object sender, RoutedEventArgs e)
+    {
+        selectedPlaylist = null; likedOnly = recentOnly = false; historyOnly = true;
+        PlaylistList.SelectedItem = null; Refresh();
+    }
+    void SongCard_Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SongRow row }) StartSong(row.Song);
+    }
+    void EditMetadata(Song song)
+    {
+        var title = PromptDialog.Ask(this, "Edit metadata", "Title:", song.Title);
+        if (title == null) return;
+        var artist = PromptDialog.Ask(this, "Edit metadata", "Artist:", song.Artist);
+        if (artist == null) return;
+        var album = PromptDialog.Ask(this, "Edit metadata", "Album:", song.Album);
+        if (album == null) return;
+        var genre = PromptDialog.Ask(this, "Edit metadata", "Genre:", song.Genre);
+        if (genre == null) return;
+        song.Title = title.Trim(); song.Artist = artist.Trim();
+        song.Album = album.Trim(); song.Genre = genre.Trim();
+        Save(); Refresh();
+        if (current?.Id == song.Id) { NowTitle.Text = song.Title; NowArtist.Text = song.Artist; }
+    }
+    void SongList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        dragStart = e.GetPosition(SongList);
+        draggedSong = FindSongRow(e.OriginalSource as DependencyObject)?.DataContext as SongRow;
+    }
+    void SongList_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (selectedPlaylist == null || draggedSong == null || e.LeftButton != MouseButtonState.Pressed) return;
+        var pos = e.GetPosition(SongList);
+        if (Math.Abs(pos.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        var source = draggedSong;
+        draggedSong = null;
+        DragDrop.DoDragDrop(SongList, source, DragDropEffects.Move);
+    }
+    void SongList_Drop(object sender, DragEventArgs e)
+    {
+        if (selectedPlaylist == null || !e.Data.GetDataPresent(typeof(SongRow))) return;
+        var from = (SongRow)e.Data.GetData(typeof(SongRow))!;
+        var target = FindSongRow(e.OriginalSource as DependencyObject)?.DataContext as SongRow;
+        if (target == null || target.Song.Id == from.Song.Id) return;
+        var ids = selectedPlaylist.SongIds;
+        if (!ids.Remove(from.Song.Id)) return;
+        var index = ids.IndexOf(target.Song.Id);
+        if (index < 0) { ids.Add(from.Song.Id); }
+        else ids.Insert(index, from.Song.Id);
+        sortMode = "Playlist order"; SortBox.SelectedIndex = 0;
+        Save(); Refresh();
+    }
+    void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.FocusedElement is TextBox || Keyboard.FocusedElement is ComboBox) return;
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F) { SearchBox.Focus(); e.Handled = true; }
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.O) { AddFiles_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Space) { PlayPause_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Right) { Next_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Left) { Previous_Click(this, new RoutedEventArgs()); e.Handled = true; }
+    }
+    void EqualizerSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        equalizer?.SetGain(e.NewValue);
     }
 
     void RefreshOutputs_Click(object sender, RoutedEventArgs e) => RefreshAudioDevices();
