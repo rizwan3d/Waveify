@@ -306,7 +306,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (rows == null) return;
+        // Ignore XAML initialization events before search controls are ready.
+        if (!IsLoaded || rows == null) return;
         youtubeSearchDebounce.Stop();
         youtubeSearchCancellation?.Cancel();
         liveYouTubeQuery = "";
