@@ -2,54 +2,71 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
-    name: Build Windows release
-    runs-on: windows-latest
+    name: Build Windows x64 package
+    runs-on: windows-2022
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: '8.0.x'
 
-      - name: Restore
-        run: dotnet restore Waveify.csproj
+      - name: Restore Windows dependencies
+        run: dotnet restore Waveify.csproj --runtime win-x64
 
-      - name: Publish
+      - name: Publish Windows executable
         run: >
           dotnet publish Waveify.csproj
           --configuration Release
           --runtime win-x64
           --self-contained true
+          --no-restore
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
           --output publish/win-x64
 
-      - name: Package
+      - name: Verify and package release
         shell: pwsh
         run: |
-          Compress-Archive -Path publish/win-x64/* -DestinationPath Waveify-win-x64.zip -Force
+          $publishDir = Join-Path $PWD 'publish/win-x64'
+          $exe = Join-Path $publishDir 'Waveify.exe'
+          if (-not (Test-Path $exe -PathType Leaf)) {
+            throw "Published Waveify.exe not found in $publishDir"
+          }
+          $zip = Join-Path $PWD 'Waveify-win-x64.zip'
+          Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zip -Force
+          if (-not (Test-Path $zip -PathType Leaf) -or (Get-Item $zip).Length -eq 0) {
+            throw 'Release ZIP was not created correctly.'
+          }
 
-      - name: Upload artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: Waveify-win-x64
           path: Waveify-win-x64.zip
+          if-no-files-found: error
 
-      - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create GitHub Release for version tags
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: Waveify-win-x64.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true
