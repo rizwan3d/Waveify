@@ -50,6 +50,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     IReadOnlyList<YouTubeSearchHit> liveYouTubeHits = Array.Empty<YouTubeSearchHit>();
     string liveYouTubeQuery = "";
     readonly ObservableCollection<SongRow> soundcloudSearchRows = new();
+    readonly DispatcherTimer soundcloudSearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(850) };
+    CancellationTokenSource? soundcloudSearchCancellation;
+    IReadOnlyList<SoundCloudSearchHit> liveSoundCloudHits = Array.Empty<SoundCloudSearchHit>();
+    string liveSoundCloudQuery = "";
     readonly ObservableCollection<SongRow> spotifySearchRows = new();
     readonly ObservableCollection<SongRow> queueRows = new();
     bool gridView;
@@ -91,6 +95,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             youtubeSearchDebounce.Stop();
             await SearchYouTubeAsync();
         };
+        soundcloudSearchDebounce.Tick += async (_, _) =>
+        {
+            soundcloudSearchDebounce.Stop();
+            await SearchSoundCloudAsync();
+        };
         timer.Start();
         Refresh();
         RefreshAudioDevices();
@@ -100,7 +109,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         UpdateShuffleButtons();
         UpdateCurrentLikeButton();
         Loaded += MainWindow_Loaded;
-        Closed += (_, _) => { youtubeSearchDebounce.Stop(); youtubeSearchCancellation?.Cancel(); SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
+        Closed += (_, _) => { youtubeSearchDebounce.Stop(); soundcloudSearchDebounce.Stop(); youtubeSearchCancellation?.Cancel(); soundcloudSearchCancellation?.Cancel(); SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
     }
     async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -309,14 +318,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         // Ignore XAML initialization events before search controls are ready.
         if (!IsLoaded || rows == null) return;
         youtubeSearchDebounce.Stop();
+        soundcloudSearchDebounce.Stop();
         youtubeSearchCancellation?.Cancel();
+        soundcloudSearchCancellation?.Cancel();
         liveYouTubeQuery = "";
         liveYouTubeHits = Array.Empty<YouTubeSearchHit>();
+        liveSoundCloudQuery = "";
+        liveSoundCloudHits = Array.Empty<SoundCloudSearchHit>();
         Refresh();
         if (SearchBox.Text.Trim().Length > 0)
         {
             YouTubeSearchStatus.Text = "Searching YouTube with yt-dlp…";
+            SoundCloudSearchStatus.Text = "Searching SoundCloud with yt-dlp…";
             youtubeSearchDebounce.Start();
+            soundcloudSearchDebounce.Start();
         }
     }
 
@@ -337,6 +352,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             soundcloudSearchRows.Clear();
             spotifySearchRows.Clear();
             YouTubeSearchStatus.Text = "Type a query to search YouTube using yt-dlp.";
+            SoundCloudSearchStatus.Text = "Type a query to search SoundCloud using yt-dlp.";
             return;
         }
 
@@ -378,9 +394,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
         }
 
+        if (string.Equals(liveSoundCloudQuery, query, StringComparison.OrdinalIgnoreCase))
+        {
+            var knownUrls = soundcloudSearchRows.Select(row => row.Song.SourceUrl)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var hit in liveSoundCloudHits)
+            {
+                if (!knownUrls.Add(hit.Url)) continue;
+                var result = new Song
+                {
+                    Title = hit.Title, Artist = hit.Artist, SourceUrl = hit.Url,
+                    ArtworkUrl = hit.ArtworkUrl, DurationSeconds = hit.DurationSeconds
+                };
+                soundcloudSearchRows.Add(new SongRow(result, soundcloudSearchRows.Count + 1));
+            }
+        }
+
         OfflineSearchCount.Text = $"{offlineSearchRows.Count} local matches";
         YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} links + videos";
-        SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} saved links";
+        SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} links + tracks";
         SpotifySearchCount.Text = $"{spotifySearchRows.Count} saved links";
         CenterScrollViewer.ScrollToTop();
     }
@@ -868,15 +900,67 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
-    void YouTubeResult_Download_Click(object sender, RoutedEventArgs e)
+    void ProviderResult_Download_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: SongRow row } ||
             !Uri.TryCreate(row.Song.SourceUrl, UriKind.Absolute, out var uri) ||
-            uri.Scheme != Uri.UriSchemeHttps || !IsHost(uri.Host.ToLowerInvariant(), "youtube.com"))
+            uri.Scheme != Uri.UriSchemeHttps)
             return;
+        var host = uri.Host.ToLowerInvariant();
+        if (!IsHost(host, "youtube.com") && !IsHost(host, "youtu.be") &&
+            !IsHost(host, "soundcloud.com")) return;
 
         UnifiedUrlBox.Text = row.Song.SourceUrl;
         UnifiedDownload_Click(sender, new RoutedEventArgs());
+    }
+
+    async void SoundCloudSearch_Click(object sender, RoutedEventArgs e)
+    {
+        soundcloudSearchDebounce.Stop();
+        await SearchSoundCloudAsync();
+    }
+
+    async Task SearchSoundCloudAsync()
+    {
+        string query = SearchBox.Text.Trim();
+        soundcloudSearchCancellation?.Cancel();
+        if (query.Length == 0) return;
+
+        if (!DependencyInstaller.IsAvailable("yt-dlp"))
+        {
+            SoundCloudSearchStatus.Text = "yt-dlp is not installed. Use Setup tools in the top bar.";
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        soundcloudSearchCancellation = cancellation;
+        SoundCloudSearchStatus.Text = "Searching SoundCloud with yt-dlp…";
+        try
+        {
+            var hits = await SoundCloudSearch.SearchAsync(query, cancellation.Token);
+            if (!ReferenceEquals(soundcloudSearchCancellation, cancellation) ||
+                !string.Equals(query, SearchBox.Text.Trim(), StringComparison.Ordinal))
+                return;
+
+            liveSoundCloudQuery = query;
+            liveSoundCloudHits = hits;
+            RefreshUnifiedSearch(query);
+            SoundCloudSearchStatus.Text = hits.Count == 0
+                ? "No public track results found. Try another query or update yt-dlp."
+                : $"Loaded {hits.Count} SoundCloud tracks. Open one or Download authorized audio.";
+        }
+        catch (OperationCanceledException) { /* Superseded by a newer query. */ }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(soundcloudSearchCancellation, cancellation))
+                SoundCloudSearchStatus.Text = "SoundCloud search unavailable: " + ex.Message;
+        }
+        finally
+        {
+            if (ReferenceEquals(soundcloudSearchCancellation, cancellation))
+                soundcloudSearchCancellation = null;
+            cancellation.Dispose();
+        }
     }
 
     void UnifiedProviderSearch_Click(object sender, RoutedEventArgs e)
