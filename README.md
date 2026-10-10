@@ -45,6 +45,13 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - Right-click a song to **Play next**, copy its details, or reveal its local file in Windows Explorer.
 - Open the playlist options menu to **Export M3U** for locally available tracks, preserving playlist order.
 
+## Music search and downloads
+
+- Open the **Discover music online** panel above the library. Enter an artist or song, choose YouTube, Spotify or SoundCloud, and press **Search**. Results open on the chosen provider's website; Waveify does not search private catalogs or scrape the website.
+- Copy a result URL and use **Paste**, **Preview** (public oEmbed metadata when available), then **Download** to import music you own or are authorized to save.
+- Download uses the existing installed tools: yt-dlp and FFmpeg for authorized YouTube/SoundCloud URLs, Sunnify for supported Spotify links, and a 150 MB cap for direct HTTPS audio files.
+- Downloader availability, content permissions and platform restrictions still apply. Search alone does not download anything.
+
 ## Dependencies
 
 Waveify targets Windows and requires:
