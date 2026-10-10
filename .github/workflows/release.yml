@@ -7,6 +7,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (for example v1.0.1)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +26,70 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Validate manual release tag
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Windows dependencies
+        run: dotnet restore Waveify.csproj --runtime win-x64
+
+      - name: Publish Windows executable
+        run: >
+          dotnet publish Waveify.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --no-restore
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          --output publish/win-x64
+
+      - name: Verify and package release
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $PWD 'publish/win-x64'
+          $exe = Join-Path $publishDir 'Waveify.exe'
+          if (-not (Test-Path $exe -PathType Leaf)) {
+            throw "Published Waveify.exe not found in $publishDir"
+          }
+          $zip = Join-Path $PWD 'Waveify-win-x64.zip'
+          Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zip -Force
+          if (-not (Test-Path $zip -PathType Leaf) -or (Get-Item $zip).Length -eq 0) {
+            throw 'Release ZIP was not created correctly.'
+          }
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Waveify-win-x64
+          path: Waveify-win-x64.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release for version tags
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: Waveify-win-x64.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+) {
+            throw 'Tag must be a version such as v1.0.1 or v1.0.1-beta.1.'
+          }
+          git fetch origin --tags --force
+          if (git tag --list $env:RELEASE_TAG) {
+            throw "Tag $env:RELEASE_TAG already exists. Use a new version tag."
+          }
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
