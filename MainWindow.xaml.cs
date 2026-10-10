@@ -38,7 +38,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     AudioFileReader? reader;
     EqualizerProvider? equalizer;
     string sortMode = "Playlist order";
-    bool recentOnly, historyOnly;
+    bool recentOnly, historyOnly, unplayedOnly, duplicatesOnly;
     Point dragStart;
     SongRow? draggedSong;
     Song? current;
@@ -185,6 +185,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     bool RemoveSongFromLibrary(Song song)
     {
         bool removed = library.Songs.Remove(song);
+        library.PlaybackHistory.RemoveAll(id => id == song.Id);
+        queue.RemoveAll(s => s.Id == song.Id);
+        RefreshQueueRows();
         foreach (var p in library.Playlists) p.SongIds.Remove(song.Id);
         if (current?.Id == song.Id) { Stop(); current = null; }
         return removed;
@@ -237,6 +240,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (genreFilter.Length > 0) songs = songs.Where(s => s.Genre.Contains(genreFilter, StringComparison.OrdinalIgnoreCase));
         if (recentOnly) songs = songs.OrderByDescending(s => s.DateAddedUtc ?? DateTime.MinValue).Take(50);
         if (historyOnly) songs = library.PlaybackHistory.Select(id => library.Songs.FirstOrDefault(s => s.Id == id)).OfType<Song>();
+        if (unplayedOnly) songs = songs.Where(s => s.PlayCount == 0);
+        if (duplicatesOnly)
+        {
+            var duplicates = library.Songs.GroupBy(s => (s.Title.Trim().ToUpperInvariant(), s.Artist.Trim().ToUpperInvariant()))
+                .Where(g => g.Count() > 1).SelectMany(g => g).Select(s => s.Id).ToHashSet();
+            songs = songs.Where(s => duplicates.Contains(s.Id));
+        }
         var search = SearchBox.Text?.Trim();
         if (!string.IsNullOrEmpty(search)) songs = songs.Where(s => (s.Title + " " + s.Artist + " " + s.Album).Contains(search, StringComparison.OrdinalIgnoreCase));
         songs = sortMode switch
@@ -252,7 +262,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         int n = 1;
         foreach (var song in songs) rows.Add(new SongRow(song, n++));
         if (previousId != null) SongList.SelectedItem = rows.FirstOrDefault(s => s.Song.Id == previousId);
-        HomeShelves.Visibility = selectedPlaylist == null && !likedOnly && !recentOnly && !historyOnly && string.IsNullOrWhiteSpace(search)
+        HomeShelves.Visibility = selectedPlaylist == null && !likedOnly && !recentOnly && !historyOnly && !unplayedOnly && !duplicatesOnly && string.IsNullOrWhiteSpace(search)
             ? Visibility.Visible : Visibility.Collapsed;
         if (HomeShelves.Visibility == Visibility.Visible)
         {
@@ -265,7 +275,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         AlbumShelves.ItemsSource = library.Songs.Where(s => File.Exists(s.FilePath))
             .GroupBy(s => string.IsNullOrWhiteSpace(s.Album) ? "Unknown album" : s.Album, StringComparer.OrdinalIgnoreCase)
             .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
-        Heading.Text = selectedPlaylist?.Name ?? (recentOnly ? "Recently Added" : historyOnly ? "Recently Played" : likedOnly ? "Liked Songs" : "Library");
+        Heading.Text = selectedPlaylist?.Name ?? (duplicatesOnly ? "Possible Duplicates" : unplayedOnly ? "Unplayed Songs" : recentOnly ? "Recently Added" : historyOnly ? "Recently Played" : likedOnly ? "Liked Songs" : "Library");
         SubHeading.Text = $"{rows.Count} tracks · Double-click a local track to play";
         RefreshQueueRows();
     }
@@ -274,13 +284,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (e.ClickCount == 2 && sender is FrameworkElement element && element.DataContext is SongRow row)
             StartSong(row.Song);
     }
-    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
-    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
+    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
+    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e) { if (rows != null) Refresh(); }
     void ShowPlaylist(Playlist playlist)
     {
         selectedPlaylist = playlist;
-        likedOnly = recentOnly = historyOnly = false;
+        likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false;
         SearchBox.Clear();
         PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, playlist));
         Refresh();
@@ -398,6 +408,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             add.Items.Add(item);
         }
         menu.Items.Add(add);
+        var playNext = new MenuItem { Header = "Play next" };
+        playNext.Click += (_, _) =>
+        {
+            if (current == null) { StartSong(song); return; }
+            queue.RemoveAll(s => s.Id == song.Id && s.Id != current.Id);
+            var position = queue.FindIndex(s => s.Id == current.Id);
+            queue.Insert(Math.Max(0, position + 1), song);
+            RefreshQueueRows();
+        };
+        menu.Items.Add(playNext);
+        var copy = new MenuItem { Header = "Copy song details" };
+        copy.Click += (_, _) => Clipboard.SetText($"{song.Title} — {song.Artist} | {song.Album}");
+        menu.Items.Add(copy);
+        if (!string.IsNullOrWhiteSpace(song.FilePath) && File.Exists(song.FilePath))
+        {
+            var location = new MenuItem { Header = "Show file in Explorer" };
+            location.Click += (_, _) => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{song.FilePath}\"") { UseShellExecute = true });
+            menu.Items.Add(location);
+        }
         var edit = new MenuItem { Header = "Edit metadata" };
         edit.Click += (_, _) => EditMetadata(song);
         menu.Items.Add(edit);
@@ -1213,12 +1242,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     void RecentlyAdded_Click(object sender, RoutedEventArgs e)
     {
-        selectedPlaylist = null; likedOnly = historyOnly = false; recentOnly = true;
+        selectedPlaylist = null; likedOnly = historyOnly = unplayedOnly = duplicatesOnly = false; recentOnly = true;
         PlaylistList.SelectedItem = null; Refresh();
     }
     void History_Click(object sender, RoutedEventArgs e)
     {
-        selectedPlaylist = null; likedOnly = recentOnly = false; historyOnly = true;
+        selectedPlaylist = null; likedOnly = recentOnly = unplayedOnly = duplicatesOnly = false; historyOnly = true;
         PlaylistList.SelectedItem = null; Refresh();
     }
     void SongCard_Play_Click(object sender, RoutedEventArgs e)
@@ -1356,6 +1385,45 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Home_Click(sender, e);
         SongList.BringIntoView();
     }
+    void ShowSmartView(bool unplayed, bool duplicates)
+    {
+        selectedPlaylist = null;
+        likedOnly = recentOnly = historyOnly = false;
+        unplayedOnly = unplayed;
+        duplicatesOnly = duplicates;
+        PlaylistList.SelectedItem = null;
+        SearchBox.Clear();
+        Refresh();
+    }
+    void Unplayed_Click(object sender, RoutedEventArgs e) => ShowSmartView(true, false);
+    void Duplicates_Click(object sender, RoutedEventArgs e) => ShowSmartView(false, true);
+    void SurpriseMe_Click(object sender, RoutedEventArgs e)
+    {
+        var playable = library.Songs.Where(s => File.Exists(s.FilePath)).ToList();
+        if (playable.Count == 0) { MessageBox.Show(this, "Import some local songs first."); return; }
+        Home_Click(sender, e);
+        StartSong(playable[random.Next(playable.Count)]);
+    }
+    void ExportPlaylist(Playlist playlist)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export playlist",
+            Filter = "M3U playlist|*.m3u",
+            FileName = string.Concat(playlist.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + ".m3u"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        var songs = playlist.SongIds.Select(id => library.Songs.FirstOrDefault(s => s.Id == id))
+            .Where(s => s != null && File.Exists(s.FilePath)).ToList();
+        var lines = new List<string> { "#EXTM3U" };
+        foreach (var song in songs)
+        {
+            lines.Add($"#EXTINF:{song!.DurationSeconds},{song.Artist} - {song.Title}".Replace("\r", " ").Replace("\n", " "));
+            lines.Add(song.FilePath);
+        }
+        File.WriteAllLines(dialog.FileName, lines, new UTF8Encoding(false));
+        MessageBox.Show(this, $"Exported {songs.Count} playable tracks.", "Playlist export");
+    }
     void PlaylistContextMenu_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: PlaylistRow row }) return;
@@ -1378,6 +1446,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             library.Playlists.Add(new Playlist { Name = playlist.Name + " (copy)", SongIds = new List<Guid>(playlist.SongIds), CoverPath = playlist.CoverPath });
             Save(); Refresh();
         });
+        Add("Export M3U", () => ExportPlaylist(playlist));
         Add("Change cover", () =>
         {
             var dialog = new OpenFileDialog { Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp" };
