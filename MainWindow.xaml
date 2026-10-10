@@ -351,7 +351,7 @@
                                             </StackPanel>
                                         </DockPanel>
                                     </DataTemplate>
-                                </ItemsControl.ItemTemplate>
+                                </ListView.ItemTemplate>
                             </ListView>
                             <StackPanel Orientation="Horizontal"><Button Content="Move up" Click="QueueMoveUp_Click"/><Button Content="Remove" Click="QueueRemove_Click"/></StackPanel>
                         </StackPanel>
