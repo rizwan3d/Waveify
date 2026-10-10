@@ -43,6 +43,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     SongRow? draggedSong;
     Song? current;
     List<Song> queue = new();
+    readonly ObservableCollection<SongRow> queueRows = new();
+    bool gridView;
+    string artistFilter = "", albumFilter = "", genreFilter = "";
+    bool likedFilter, localFilter;
+    uint? yearFilter;
     Playlist? selectedPlaylist;
     bool likedOnly, shuffle, dragging;
     int repeatMode; // 0: off, 1: playlist, 2: one
@@ -57,6 +62,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         selectedOutputId = playerSettings.OutputDeviceId;
         SongList.ItemsSource = rows;
         PlaylistList.ItemsSource = playlistRows;
+        QueueList.ItemsSource = queueRows;
+        SongGrid.ItemsSource = rows;
         SortBox.SelectedIndex = 0;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         timer.Tick += (_, _) => UpdateProgress();
@@ -197,7 +204,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 var first = p.SongIds.Select(id => library.Songs.FirstOrDefault(s => s.Id == id))
                     .FirstOrDefault(song => song != null);
-                playlistRows.Add(new PlaylistRow(p, first == null ? null : ArtworkResolver.Load(first)));
+                BitmapImage? cover = null;
+                if (!string.IsNullOrWhiteSpace(p.CoverPath) && File.Exists(p.CoverPath))
+                {
+                    try { cover = new BitmapImage(new Uri(p.CoverPath)); } catch (Exception ex) { Debug.WriteLine(ex); }
+                }
+                playlistRows.Add(new PlaylistRow(p, cover ?? (first == null ? null : ArtworkResolver.Load(first))));
             }
             if (selected != null)
                 PlaylistList.SelectedItem = playlistRows.FirstOrDefault(r => ReferenceEquals(r.Playlist, selected));
@@ -210,7 +222,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         RefreshPlaylistArtwork();
         IEnumerable<Song> songs = library.Songs;
         if (selectedPlaylist != null) songs = songs.Where(s => selectedPlaylist.SongIds.Contains(s.Id));
-        if (likedOnly) songs = songs.Where(s => s.Liked);
+        if (likedOnly || likedFilter) songs = songs.Where(s => s.Liked);
+        if (localFilter) songs = songs.Where(s => File.Exists(s.FilePath));
+        if (yearFilter != null) songs = songs.Where(s => s.Year == yearFilter);
+        if (artistFilter.Length > 0) songs = songs.Where(s => s.Artist.Contains(artistFilter, StringComparison.OrdinalIgnoreCase));
+        if (albumFilter.Length > 0) songs = songs.Where(s => s.Album.Contains(albumFilter, StringComparison.OrdinalIgnoreCase));
+        if (genreFilter.Length > 0) songs = songs.Where(s => s.Genre.Contains(genreFilter, StringComparison.OrdinalIgnoreCase));
         if (recentOnly) songs = songs.OrderByDescending(s => s.DateAddedUtc ?? DateTime.MinValue).Take(50);
         if (historyOnly) songs = library.PlaybackHistory.Select(id => library.Songs.FirstOrDefault(s => s.Id == id)).OfType<Song>();
         var search = SearchBox.Text?.Trim();
@@ -243,6 +260,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             .OrderBy(g => g.Key).Select(g => new MusicShelf(g.Key, g.Select((song, i) => new SongRow(song, i + 1)).ToList())).ToList();
         Heading.Text = selectedPlaylist?.Name ?? (recentOnly ? "Recently Added" : historyOnly ? "Recently Played" : likedOnly ? "Liked Songs" : "Library");
         SubHeading.Text = $"{rows.Count} tracks · Double-click a local track to play";
+        RefreshQueueRows();
     }
     void ShelfTrack_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -834,6 +852,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             // selected playlist. Auto-advance and repeat keep the active queue.
             if (!preserveQueue)
                 queue = rows.Select(r => r.Song).Where(x => File.Exists(x.FilePath)).ToList();
+            RefreshQueueRows();
             reader = new AudioFileReader(song.FilePath) { Volume = (float)Volume.Value };
             if (!restoredPositionConsumed && playerSettings.LastTrackId == song.Id
                 && playerSettings.LastPositionSeconds > 0
@@ -866,6 +885,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             current = song; NowTitle.Text = song.Title; NowArtist.Text = song.Artist;
             library.PlaybackHistory.Remove(song.Id);
             library.PlaybackHistory.Insert(0, song.Id);
+            song.PlayCount++;
+            song.LastPlayedUtc = DateTime.UtcNow;
             if (library.PlaybackHistory.Count > 100) library.PlaybackHistory.RemoveRange(100, library.PlaybackHistory.Count - 100);
             Save();
             playerSettings.LastTrackId = song.Id;
@@ -1207,6 +1228,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (album == null) return;
         var genre = PromptDialog.Ask(this, "Edit metadata", "Genre:", song.Genre);
         if (genre == null) return;
+        if (!string.IsNullOrEmpty(song.FilePath) && File.Exists(song.FilePath) &&
+            MessageBox.Show(this, "Write these metadata changes into the audio file too?", "Embedded tags", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+        {
+            try
+            {
+                using var file = TagLib.File.Create(song.FilePath);
+                file.Tag.Title = title.Trim(); file.Tag.Performers = new[] { artist.Trim() };
+                file.Tag.Album = album.Trim(); file.Tag.Genres = new[] { genre.Trim() };
+                file.Save();
+            }
+            catch (Exception ex) { MessageBox.Show(this, "Could not write embedded tags: " + ex.Message); }
+        }
         song.Title = title.Trim(); song.Artist = artist.Trim();
         song.Album = album.Trim(); song.Genre = genre.Trim();
         Save(); Refresh();
@@ -1243,7 +1276,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.FocusedElement is TextBox || Keyboard.FocusedElement is ComboBox) return;
+        MediaKeyDown(sender, e);
+        if (e.Handled || Keyboard.FocusedElement is TextBox || Keyboard.FocusedElement is ComboBox) return;
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.M) { Volume.Value = Volume.Value == 0 ? 0.75 : 0; e.Handled = true; return; }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F) { SearchBox.Focus(); e.Handled = true; }
         else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.O) { AddFiles_Click(this, new RoutedEventArgs()); e.Handled = true; }
         else if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Space) { PlayPause_Click(this, new RoutedEventArgs()); e.Handled = true; }
@@ -1253,6 +1288,119 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void EqualizerSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         equalizer?.SetGain(e.NewValue);
+    }
+
+
+    void RefreshQueueRows()
+    {
+        queueRows.Clear();
+        var position = current == null ? -1 : queue.FindIndex(s => s.Id == current.Id);
+        foreach (var song in queue.Skip(Math.Max(0, position + 1)))
+            queueRows.Add(new SongRow(song, queueRows.Count + 1));
+    }
+    void Queue_Click(object sender, RoutedEventArgs e) =>
+        QueuePanel.Visibility = QueuePanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    void ClearQueue_Click(object sender, RoutedEventArgs e)
+    {
+        queue = current == null ? new List<Song>() : new List<Song> { current };
+        RefreshQueueRows();
+    }
+    void QueueSong_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (QueueList.SelectedItem is SongRow row) StartSong(row.Song, preserveQueue: true);
+    }
+    void QueueMoveUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (QueueList.SelectedItem is not SongRow row) return;
+        int i = queue.FindIndex(s => s.Id == row.Song.Id);
+        int currentIndex = current == null ? -1 : queue.FindIndex(s => s.Id == current.Id);
+        if (i <= currentIndex + 1) return;
+        (queue[i - 1], queue[i]) = (queue[i], queue[i - 1]);
+        RefreshQueueRows();
+    }
+    void QueueRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (QueueList.SelectedItem is not SongRow row || row.Song.Id == current?.Id) return;
+        queue.RemoveAll(s => s.Id == row.Song.Id);
+        RefreshQueueRows();
+    }
+    void ListView_Click(object sender, RoutedEventArgs e) { gridView = false; UpdateViewMode(); }
+    void GridView_Click(object sender, RoutedEventArgs e) { gridView = true; UpdateViewMode(); }
+    void UpdateViewMode()
+    {
+        SongList.Visibility = gridView ? Visibility.Collapsed : Visibility.Visible;
+        SongGrid.Visibility = gridView ? Visibility.Visible : Visibility.Collapsed;
+    }
+    void SeeAll_Click(object sender, RoutedEventArgs e)
+    {
+        Home_Click(sender, e);
+        SongList.BringIntoView();
+    }
+    void PlaylistContextMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: PlaylistRow row }) return;
+        var playlist = row.Playlist;
+        var menu = new ContextMenu();
+        void Add(string text, Action action)
+        {
+            var item = new MenuItem { Header = text };
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+        Add("Rename", () =>
+        {
+            var name = PromptDialog.Ask(this, "Rename playlist", "Name:", playlist.Name);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            playlist.Name = name.Trim(); Save(); Refresh();
+        });
+        Add("Duplicate", () =>
+        {
+            library.Playlists.Add(new Playlist { Name = playlist.Name + " (copy)", SongIds = new List<Guid>(playlist.SongIds), CoverPath = playlist.CoverPath });
+            Save(); Refresh();
+        });
+        Add("Change cover", () =>
+        {
+            var dialog = new OpenFileDialog { Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp" };
+            if (dialog.ShowDialog() != true) return;
+            playlist.CoverPath = dialog.FileName; Save(); Refresh();
+        });
+        Add("Delete", () =>
+        {
+            if (MessageBox.Show(this, "Delete playlist '" + playlist.Name + "'?", "Delete playlist", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            library.Playlists.Remove(playlist);
+            if (ReferenceEquals(selectedPlaylist, playlist)) selectedPlaylist = null;
+            Save(); Refresh();
+        });
+        menu.PlacementTarget = (UIElement)sender;
+        menu.IsOpen = true;
+    }
+    void ApplyFilters_Click(object sender, RoutedEventArgs e)
+    {
+        artistFilter = ArtistFilter.Text.Trim();
+        albumFilter = AlbumFilter.Text.Trim();
+        genreFilter = GenreFilter.Text.Trim();
+        likedFilter = LikedFilter.IsChecked == true;
+        localFilter = LocalFilter.IsChecked == true;
+        yearFilter = uint.TryParse(YearFilter.Text, out var year) ? year : null;
+        Refresh();
+    }
+    void ResetFilters_Click(object sender, RoutedEventArgs e)
+    {
+        ArtistFilter.Clear(); AlbumFilter.Clear(); GenreFilter.Clear(); YearFilter.Clear();
+        LikedFilter.IsChecked = LocalFilter.IsChecked = false;
+        ApplyFilters_Click(sender, e);
+    }
+    void Stats_Click(object sender, RoutedEventArgs e)
+    {
+        var played = library.Songs.Where(s => s.PlayCount > 0).OrderByDescending(s => s.PlayCount).Take(15);
+        MessageBox.Show(this, string.Join("\n", played.Select(s => $"{s.Title} — {s.PlayCount} plays; last {s.LastPlayedUtc?.ToLocalTime():g}")),
+            "Most played");
+    }
+    void MediaKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.MediaPlayPause) { PlayPause_Click(sender, new RoutedEventArgs()); e.Handled = true; }
+        if (e.Key == Key.MediaNextTrack) { Next_Click(sender, new RoutedEventArgs()); e.Handled = true; }
+        if (e.Key == Key.MediaPreviousTrack) { Previous_Click(sender, new RoutedEventArgs()); e.Handled = true; }
     }
 
     void RefreshOutputs_Click(object sender, RoutedEventArgs e) => RefreshAudioDevices();
