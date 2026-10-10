@@ -149,6 +149,32 @@
                                 </DockPanel>
                             </Button>
                         </DataTemplate>
+
+                        <DataTemplate x:Key="YouTubeSearchResultTemplate">
+                            <Border Background="#1A202B" BorderBrush="#303848" BorderThickness="1" Padding="8" CornerRadius="7" Margin="0,0,0,5">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="92"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0" Click="UnifiedResult_Open_Click" Background="Transparent" BorderThickness="0"
+                                            Foreground="#F2F5FB" HorizontalContentAlignment="Stretch" ToolTip="Open video on YouTube">
+                                        <DockPanel>
+                                            <Border DockPanel.Dock="Left" Width="48" Height="34" CornerRadius="5" ClipToBounds="True"
+                                                    Background="#252B38" Margin="0,0,9,0">
+                                                <Image Source="{Binding Artwork}" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Artist}" FontSize="11" Foreground="{StaticResource WaveMuted}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Button>
+                                    <Button Grid.Column="1" Content="Download" Click="YouTubeResult_Download_Click" Margin="8,0,0,0"
+                                            ToolTip="Import audio only if you own it or have permission"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
                     </ScrollViewer.Resources>
 
                     <StackPanel>
@@ -175,12 +201,14 @@
                                 <ItemsControl x:Name="OfflineSearchResults" ItemTemplate="{StaticResource UnifiedMusicResultTemplate}" Margin="0,0,0,14"/>
                                 <Separator Background="#2C3442" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7" LastChildFill="False">
-                                    <Button DockPanel.Dock="Right" Content="Search YouTube ↗" Tag="YouTube" Click="UnifiedProviderSearch_Click"
-                                            Padding="10,5" ToolTip="See matching YouTube results in your browser"/>
+                                    <Button DockPanel.Dock="Right" Content="Search YouTube" Click="YouTubeSearch_Click"
+                                            Padding="10,5" ToolTip="Search YouTube within Waveify using yt-dlp"/>
                                     <TextBlock Text="YouTube" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="YoutubeSearchCount" Foreground="{StaticResource WaveMuted}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                                 </DockPanel>
-                                <ItemsControl x:Name="YoutubeSearchResults" ItemTemplate="{StaticResource UnifiedMusicResultTemplate}" Margin="0,0,0,14"/>
+                                <ItemsControl x:Name="YoutubeSearchResults" ItemTemplate="{StaticResource YouTubeSearchResultTemplate}" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="YouTubeSearchStatus" Text="Type a query to search YouTube using yt-dlp."
+                                           FontSize="11" Foreground="{StaticResource WaveMuted}" Margin="0,0,0,14" TextWrapping="Wrap"/>
                                 <Separator Background="#2C3442" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7" LastChildFill="False">
                                     <Button DockPanel.Dock="Right" Content="Search SoundCloud ↗" Tag="SoundCloud" Click="UnifiedProviderSearch_Click"
