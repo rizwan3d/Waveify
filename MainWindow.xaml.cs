@@ -57,7 +57,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     readonly ObservableCollection<SongRow> spotifySearchRows = new();
     readonly DispatcherTimer spotifySearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(1100) };
     CancellationTokenSource? spotifySearchCancellation;
-    IReadOnlyList<SpotifySearchHit> liveSpotifyHits = Array.Empty<SpotifySearchHit>();
+    IReadOnlyList<WolfSpotifyHit> liveSpotifyHits = Array.Empty<WolfSpotifyHit>();
     string liveSpotifyQuery = "";
     readonly ObservableCollection<SongRow> queueRows = new();
     bool gridView;
@@ -148,21 +148,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     async Task CheckDependenciesAsync(bool manual = false)
     {
-        var missing = await Task.Run(() => new[] { "yt-dlp", "deno", "sunnify", "ffmpeg", "ddgs" }
+        var missing = await Task.Run(() => new[] { "yt-dlp", "deno", "sunnify", "ffmpeg" }
             .Where(name => !DependencyInstaller.IsAvailable(name)).ToList());
         if (missing.Count == 0)
         {
-            if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify, FFmpeg and ddgs are already available.", "Waveify tools");
+            if (manual) MessageBox.Show(this, "yt-dlp, Deno, Sunnify and FFmpeg are already available.", "Waveify tools");
             return;
         }
         var answer = MessageBox.Show(this,
             "Missing optional tools: " + string.Join(", ", missing) + ".\n\n" +
-            "Install these optional dependencies in your local Waveify tools folder? " +
-            "The executable tools come from official GitHub releases with SHA-256 verification. " +
-            "For Spotify search, Waveify downloads one compact official Python 3.13 runtime package with pip from NuGet, " +
-            "verifies its SHA-512 checksum, and installs only required runtime files plus ddgs wheels in Waveify's private tools folder. " +
-            "No system Python or PATH changes are needed.\n\n" +
-            "Third-party tools may use network access and disk space. You may decline and still play local music.",
+            "Download their Windows executables from official GitHub releases into the Waveify tools folder? " +
+            "Each download is verified with a published SHA-256 checksum. " +
+            "You can decline and still use the offline music player.\n\n" +
+            "These optional third-party tools may require network access and disk space.",
             "Set up Waveify tools", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
         var setup = new ToolSetupProgressWindow { Owner = this };
@@ -340,13 +338,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         liveSoundCloudQuery = "";
         liveSoundCloudHits = Array.Empty<SoundCloudSearchHit>();
         liveSpotifyQuery = "";
-        liveSpotifyHits = Array.Empty<SpotifySearchHit>();
+        liveSpotifyHits = Array.Empty<WolfSpotifyHit>();
         Refresh();
         if (SearchBox.Text.Trim().Length > 0)
         {
             YouTubeSearchStatus.Text = "Searching YouTube with yt-dlp…";
             SoundCloudSearchStatus.Text = "Searching SoundCloud with yt-dlp…";
-            SpotifySearchStatus.Text = "Searching public Spotify pages with ddgs…";
+            SpotifySearchStatus.Text = "Searching Spotify tracks through wolfXspotify API…";
             youtubeSearchDebounce.Start();
             soundcloudSearchDebounce.Start();
             spotifySearchDebounce.Start();
@@ -371,7 +369,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             spotifySearchRows.Clear();
             YouTubeSearchStatus.Text = "Type a query to search YouTube using yt-dlp.";
             SoundCloudSearchStatus.Text = "Type a query to search SoundCloud using yt-dlp.";
-            SpotifySearchStatus.Text = "Type a query to search Spotify using Python ddgs.";
+            SpotifySearchStatus.Text = "Type a query to search Spotify using wolfXspotify API.";
             return;
         }
 
@@ -438,7 +436,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 if (!knownUrls.Add(hit.Url)) continue;
                 var result = new Song
                 {
-                    Title = hit.Title, Artist = hit.Detail, SourceUrl = hit.Url
+                    Title = hit.Title, Artist = hit.Artist, SourceUrl = hit.Url,
+                    ArtworkUrl = hit.ArtworkUrl, DurationSeconds = hit.DurationSeconds
                 };
                 spotifySearchRows.Add(new SongRow(result, spotifySearchRows.Count + 1));
             }
@@ -447,7 +446,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         OfflineSearchCount.Text = $"{offlineSearchRows.Count} local matches";
         YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} links + videos";
         SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} links + tracks";
-        SpotifySearchCount.Text = $"{spotifySearchRows.Count} links + web results";
+        SpotifySearchCount.Text = $"{spotifySearchRows.Count} links + tracks";
         CenterScrollViewer.ScrollToTop();
     }
 
@@ -1011,10 +1010,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var cancellation = new CancellationTokenSource();
         spotifySearchCancellation = cancellation;
-        SpotifySearchStatus.Text = "Searching Spotify web results with ddgs…";
+        SpotifySearchStatus.Text = "Searching Spotify tracks through wolfXspotify API…";
         try
         {
-            var hits = await SpotifySearch.SearchAsync(query, cancellation.Token);
+            var hits = await WolfSpotifySearch.SearchAsync(query, cancellation.Token);
             if (!ReferenceEquals(spotifySearchCancellation, cancellation) ||
                 !string.Equals(query, SearchBox.Text.Trim(), StringComparison.Ordinal))
                 return;
@@ -1023,8 +1022,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             liveSpotifyHits = hits;
             RefreshUnifiedSearch(query);
             SpotifySearchStatus.Text = hits.Count == 0
-                ? "No indexed Spotify pages found. Try another query or search on Spotify."
-                : $"Found {hits.Count} Spotify web results. Open a result, or download audio you own or have permission to save.";
+                ? "No Spotify tracks found. Try another search."
+                 : $"Found {hits.Count} Spotify tracks. Open a result, or import audio you are authorized to save.";
         }
         catch (OperationCanceledException) { /* Superseded by a newer query. */ }
         catch (Exception ex)
