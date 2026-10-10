@@ -38,6 +38,13 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - The equalizer has bass, midrange, and treble controls with Flat, Rock, Vocal, and Electronic presets.
 - Media-key events are handled when Waveify has keyboard focus; Ctrl+M toggles mute. System-wide media controls and configurable shortcuts are not yet implemented.
 
+## Quick discovery and song actions
+
+- **Surprise me** plays a random local song from the library.
+- **Unplayed** lists tracks with zero plays; **Possible duplicates** finds matching title-and-artist entries for review without automatically deleting files.
+- Right-click a song to **Play next**, copy its details, or reveal its local file in Windows Explorer.
+- Open the playlist options menu to **Export M3U** for locally available tracks, preserving playlist order.
+
 ## Dependencies
 
 Waveify targets Windows and requires:
