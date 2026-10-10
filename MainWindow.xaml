@@ -131,7 +131,7 @@
                 </Border>
 
                 <!-- center -->
-                <ScrollViewer x:Name="CenterScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+                <ScrollViewer x:Name="CenterScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly" PreviewMouseWheel="CenterScrollViewer_PreviewMouseWheel">
                     <StackPanel>
                         <Border Height="300" CornerRadius="12" ClipToBounds="True" Margin="0,0,0,18">
                             <Grid>
@@ -275,7 +275,7 @@
                         <ItemsControl x:Name="SongGrid" ItemsSource="{Binding ElementName=SongList,Path=ItemsSource}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><Button Width="150" Height="70" Margin="5" Click="SongCard_Play_Click"><StackPanel><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Artist}" FontSize="11" TextTrimming="CharacterEllipsis"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         </ScrollViewer>
                         <WrapPanel Margin="8,2"><TextBox x:Name="ArtistFilter" Width="90" ToolTip="Artist filter"/><TextBox x:Name="AlbumFilter" Width="90" ToolTip="Album filter"/><TextBox x:Name="GenreFilter" Width="90" ToolTip="Genre filter"/><TextBox x:Name="YearFilter" Width="55" ToolTip="Year"/><CheckBox x:Name="LikedFilter" Content="Liked"/><CheckBox x:Name="LocalFilter" Content="Local"/><Button Content="Filter" Click="ApplyFilters_Click"/><Button Content="Reset" Click="ResetFilters_Click"/></WrapPanel>
-                        <ListView x:Name="SongList" Height="290" AllowDrop="True" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseWheel="SongList_PreviewMouseWheel" PreviewMouseLeftButtonDown="SongList_PreviewMouseLeftButtonDown" MouseMove="SongList_MouseMove" Drop="SongList_Drop" ContextMenuOpening="SongList_ContextMenuOpening" PreviewMouseRightButtonDown="SongList_PreviewMouseRightButtonDown" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="SongList_MouseDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemContainerStyle="{StaticResource MusicTrackRow}">
+                        <ListView x:Name="SongList" Height="290" AllowDrop="True" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseLeftButtonDown="SongList_PreviewMouseLeftButtonDown" MouseMove="SongList_MouseMove" Drop="SongList_Drop" ContextMenuOpening="SongList_ContextMenuOpening" PreviewMouseRightButtonDown="SongList_PreviewMouseRightButtonDown" Background="Transparent" BorderThickness="0" Foreground="White" MouseDoubleClick="SongList_MouseDoubleClick" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemContainerStyle="{StaticResource MusicTrackRow}">
                             <ListView.View>
                                 <GridView>
                                     <GridViewColumn Header="#" Width="42" DisplayMemberBinding="{Binding Index}"/>
