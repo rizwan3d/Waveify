@@ -864,7 +864,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             restoredPositionConsumed = true;
             output = CreateAudioOutput();
             equalizer = new EqualizerProvider(reader);
-            equalizer.SetGain(EqualizerSlider.Value);
+            equalizer.SetBands(EqualizerSlider.Value, MidSlider.Value, TrebleSlider.Value);
             output.Init(new SampleToWaveProvider(equalizer));
             int generation = playbackGeneration;
             var playingReader = reader;
@@ -1285,9 +1285,22 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Right) { Next_Click(this, new RoutedEventArgs()); e.Handled = true; }
         else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Left) { Previous_Click(this, new RoutedEventArgs()); e.Handled = true; }
     }
+    void EqualizerPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (EqualizerPreset.SelectedItem is not ComboBoxItem item || EqualizerSlider == null || MidSlider == null || TrebleSlider == null) return;
+        (double bass, double mid, double treble) = item.Content?.ToString() switch
+        {
+            "Rock" => (5, -1, 4),
+            "Vocal" => (-2, 4, 2),
+            "Electronic" => (6, -2, 5),
+            _ => (0, 0, 0)
+        };
+        EqualizerSlider.Value = bass; MidSlider.Value = mid; TrebleSlider.Value = treble;
+    }
     void EqualizerSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        equalizer?.SetGain(e.NewValue);
+        if (EqualizerSlider != null && MidSlider != null && TrebleSlider != null)
+            equalizer?.SetBands(EqualizerSlider.Value, MidSlider.Value, TrebleSlider.Value);
     }
 
 
