@@ -300,11 +300,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (!refreshingPlaylistRows && PlaylistList.SelectedItem is PlaylistRow { Playlist: var p } && !ReferenceEquals(selectedPlaylist, p))
             ShowPlaylist(p);
     }
-    void ViewPlaylist_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: PlaylistRow row })
-            ShowPlaylist(row.Playlist);
-    }
     void CreatePlaylist_Click(object sender, RoutedEventArgs e)
     {
         var name = PromptDialog.Ask(this, "Create playlist", "Playlist name:");
@@ -1433,9 +1428,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         File.WriteAllLines(dialog.FileName, lines, new UTF8Encoding(false));
         MessageBox.Show(this, $"Exported {songs.Count} playable tracks.", "Playlist export");
     }
-    void PlaylistContextMenu_Click(object sender, RoutedEventArgs e)
+    void PlaylistList_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement { DataContext: PlaylistRow row }) return;
+        // Use the row under the cursor, not a stale selected playlist.
+        DependencyObject? hit = e.OriginalSource as DependencyObject;
+        while (hit != null && hit is not ListBoxItem)
+            hit = VisualTreeHelper.GetParent(hit);
+        if (hit is not ListBoxItem { DataContext: PlaylistRow row } item) return;
         var playlist = row.Playlist;
         var menu = new ContextMenu();
         void Add(string text, Action action)
@@ -1469,8 +1468,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (ReferenceEquals(selectedPlaylist, playlist)) selectedPlaylist = null;
             Save(); Refresh();
         });
-        menu.PlacementTarget = (UIElement)sender;
+        menu.PlacementTarget = item;
+        menu.Placement = PlacementMode.MousePoint;
         menu.IsOpen = true;
+        e.Handled = true;
     }
     void ApplyFilters_Click(object sender, RoutedEventArgs e)
     {
