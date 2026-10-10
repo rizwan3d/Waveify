@@ -24,7 +24,7 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - Right-click a song to edit its title, artist, album, and genre. These edits update Waveify's library metadata (they do not rewrite the audio file tags).
 - **Recently Added** displays the 50 newest imports, and **Recently Played** keeps the last 100 distinct tracks between launches.
 - Home offers artist, album, and genre shelves. Double-click a shelf track to play it.
-- The Bass slider in the bottom player controls a low-shelf equalizer from -12 to +12 dB.
+- The Now Playing panel has Bass, Mid and Treble sliders, with equalizer presets and a top-bar toggle.
 - Keyboard shortcuts: **Space** play/pause, **Ctrl+F** search, **Ctrl+O** import files, **Ctrl+Right** next, and **Ctrl+Left** previous.
 
 ## Additional controls
@@ -45,12 +45,14 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - Right-click a song to **Play next**, copy its details, or reveal its local file in Windows Explorer.
 - Open the playlist options menu to **Export M3U** for locally available tracks, preserving playlist order.
 
-## Music search and downloads
+## Unified music search and downloads
 
-- Open the **Discover music online** panel above the library. Enter an artist or song, choose YouTube, Spotify or SoundCloud, and press **Search**. Results open on the chosen provider's website; Waveify does not search private catalogs or scrape the website.
-- Copy a result URL and use **Paste**, **Preview** (public oEmbed metadata when available), then **Download** to import music you own or are authorized to save.
-- Download uses the existing installed tools: yt-dlp and FFmpeg for authorized YouTube/SoundCloud URLs, Sunnify for supported Spotify links, and a 150 MB cap for direct HTTPS audio files.
-- Downloader availability, content permissions and platform restrictions still apply. Search alone does not download anything.
+- Use the **single search box in the top bar** to search by title, artist, album or genre. Matching locally playable tracks are grouped under **Offline**. Previously saved online bookmarks are grouped under **YouTube**, **SoundCloud**, and **Spotify**.
+- Search results appear in one central pane, replacing the normal browsing view while a search is active. **Clear search** returns to library browsing; choosing a sidebar view also closes search.
+- Each provider section has a **Search [provider]** button to open a live provider search in your web browser, using the same query. Waveify does **not** retrieve live provider catalogs inside the app without appropriate service integrations. Provider sections only show matching links that have already been saved to Waveify.
+- Use the **Import a music link** controls in the results pane to paste a provider URL, preview available public metadata and import audio you own or are authorized to download.
+- Authorized downloads use the existing tools: yt-dlp and FFmpeg for supported YouTube/SoundCloud URLs, Sunnify for supported Spotify URLs, and a 150 MB limit on direct HTTPS audio files.
+- Downloader availability, music rights, and service restrictions still apply. Searching does not automatically download music.
 
 ## Dependencies
 
