@@ -293,8 +293,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (e.ClickCount == 2 && sender is FrameworkElement element && element.DataContext is SongRow row)
             StartSong(row.Song);
     }
-    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; PlaylistList.SelectedItem = null; Refresh(); }
-    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; Refresh(); }
+    void Home_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh(); }
+    void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (rows != null) Refresh();
@@ -1574,12 +1574,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void RecentlyAdded_Click(object sender, RoutedEventArgs e)
     {
         selectedPlaylist = null; likedOnly = historyOnly = unplayedOnly = duplicatesOnly = false; recentOnly = true;
-        PlaylistList.SelectedItem = null; Refresh();
+        PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh();
     }
     void History_Click(object sender, RoutedEventArgs e)
     {
         selectedPlaylist = null; likedOnly = recentOnly = unplayedOnly = duplicatesOnly = false; historyOnly = true;
-        PlaylistList.SelectedItem = null; Refresh();
+        PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh();
     }
     void SongCard_Play_Click(object sender, RoutedEventArgs e)
     {
