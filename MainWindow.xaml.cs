@@ -45,6 +45,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     List<Song> queue = new();
     readonly ObservableCollection<SongRow> offlineSearchRows = new();
     readonly ObservableCollection<SongRow> youtubeSearchRows = new();
+    readonly DispatcherTimer youtubeSearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(650) };
+    CancellationTokenSource? youtubeSearchCancellation;
+    IReadOnlyList<YouTubeSearchHit> liveYouTubeHits = Array.Empty<YouTubeSearchHit>();
+    string liveYouTubeQuery = "";
     readonly ObservableCollection<SongRow> soundcloudSearchRows = new();
     readonly ObservableCollection<SongRow> spotifySearchRows = new();
     readonly ObservableCollection<SongRow> queueRows = new();
@@ -82,6 +86,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SortBox.SelectedIndex = 0;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         timer.Tick += (_, _) => UpdateProgress();
+        youtubeSearchDebounce.Tick += async (_, _) =>
+        {
+            youtubeSearchDebounce.Stop();
+            await SearchYouTubeAsync();
+        };
         timer.Start();
         Refresh();
         RefreshAudioDevices();
@@ -91,7 +100,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         UpdateShuffleButtons();
         UpdateCurrentLikeButton();
         Loaded += MainWindow_Loaded;
-        Closed += (_, _) => { SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
+        Closed += (_, _) => { youtubeSearchDebounce.Stop(); youtubeSearchCancellation?.Cancel(); SaveAudioSettings(); Stop(); timer.Stop(); http.Dispose(); metadataEnricher.Dispose(); foreach (var d in availableOutputs) d.Dispose(); audioDevices?.Dispose(); };
     }
     async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -297,7 +306,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void Liked_Click(object sender, RoutedEventArgs e) { selectedPlaylist = null; likedOnly = recentOnly = historyOnly = unplayedOnly = duplicatesOnly = false; likedOnly = true; PlaylistList.SelectedItem = null; SearchBox.Clear(); Refresh(); }
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (rows != null) Refresh();
+        if (rows == null) return;
+        youtubeSearchDebounce.Stop();
+        youtubeSearchCancellation?.Cancel();
+        liveYouTubeQuery = "";
+        liveYouTubeHits = Array.Empty<YouTubeSearchHit>();
+        Refresh();
+        if (SearchBox.Text.Trim().Length > 0)
+        {
+            YouTubeSearchStatus.Text = "Searching YouTube with yt-dlp…";
+            youtubeSearchDebounce.Start();
+        }
     }
 
     static bool MatchesUnifiedSearch(Song song, string query) =>
@@ -316,6 +335,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             youtubeSearchRows.Clear();
             soundcloudSearchRows.Clear();
             spotifySearchRows.Clear();
+            YouTubeSearchStatus.Text = "Type a query to search YouTube using yt-dlp.";
             return;
         }
 
@@ -341,8 +361,24 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (group != null) group.Add(new SongRow(song, group.Count + 1));
         }
 
+        if (string.Equals(liveYouTubeQuery, query, StringComparison.OrdinalIgnoreCase))
+        {
+            var knownUrls = youtubeSearchRows.Select(row => row.Song.SourceUrl)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var hit in liveYouTubeHits)
+            {
+                if (!knownUrls.Add(hit.Url)) continue;
+                var result = new Song
+                {
+                    Title = hit.Title, Artist = hit.Artist, SourceUrl = hit.Url,
+                    ArtworkUrl = hit.ArtworkUrl, DurationSeconds = hit.DurationSeconds
+                };
+                youtubeSearchRows.Add(new SongRow(result, youtubeSearchRows.Count + 1));
+            }
+        }
+
         OfflineSearchCount.Text = $"{offlineSearchRows.Count} local matches";
-        YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} saved links";
+        YoutubeSearchCount.Text = $"{youtubeSearchRows.Count} links + videos";
         SoundcloudSearchCount.Text = $"{soundcloudSearchRows.Count} saved links";
         SpotifySearchCount.Text = $"{spotifySearchRows.Count} saved links";
         CenterScrollViewer.ScrollToTop();
@@ -780,6 +816,66 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             MessageBox.Show(this, "Could not use that folder: " + ex.Message, "Waveify music folder",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    async void YouTubeSearch_Click(object sender, RoutedEventArgs e)
+    {
+        youtubeSearchDebounce.Stop();
+        await SearchYouTubeAsync();
+    }
+
+    async Task SearchYouTubeAsync()
+    {
+        string query = SearchBox.Text.Trim();
+        youtubeSearchCancellation?.Cancel();
+        if (query.Length == 0) return;
+
+        if (!DependencyInstaller.IsAvailable("yt-dlp"))
+        {
+            YouTubeSearchStatus.Text = "yt-dlp is not installed. Use the Setup tools button in the top bar.";
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        youtubeSearchCancellation = cancellation;
+        YouTubeSearchStatus.Text = "Searching YouTube with yt-dlp…";
+        try
+        {
+            var hits = await YouTubeSearch.SearchAsync(query, cancellation.Token);
+            if (!ReferenceEquals(youtubeSearchCancellation, cancellation) ||
+                !string.Equals(query, SearchBox.Text.Trim(), StringComparison.Ordinal))
+                return;
+
+            liveYouTubeQuery = query;
+            liveYouTubeHits = hits;
+            RefreshUnifiedSearch(query);
+            YouTubeSearchStatus.Text = hits.Count == 0
+                ? "No videos found. Try another search term."
+                : $"Loaded {hits.Count} YouTube videos. Click a title to open it, or Download to import authorized audio.";
+        }
+        catch (OperationCanceledException) { /* A new search superseded this one. */ }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(youtubeSearchCancellation, cancellation))
+                YouTubeSearchStatus.Text = "YouTube search unavailable: " + ex.Message;
+        }
+        finally
+        {
+            if (ReferenceEquals(youtubeSearchCancellation, cancellation))
+                youtubeSearchCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    void YouTubeResult_Download_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: SongRow row } ||
+            !Uri.TryCreate(row.Song.SourceUrl, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps || !IsHost(uri.Host.ToLowerInvariant(), "youtube.com"))
+            return;
+
+        UnifiedUrlBox.Text = row.Song.SourceUrl;
+        UnifiedDownload_Click(sender, new RoutedEventArgs());
     }
 
     void UnifiedProviderSearch_Click(object sender, RoutedEventArgs e)
