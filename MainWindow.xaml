@@ -103,6 +103,9 @@
                             <Button Content="Recently Added" Click="RecentlyAdded_Click" Margin="0,0,0,5"/>
                             <Button Content="Recently Played" Click="History_Click" Margin="0,0,0,8"/>
                             <Button Content="Most Played" Click="Stats_Click" Margin="0,0,0,8"/>
+                            <Button Content="Surprise me" Click="SurpriseMe_Click" Margin="0,0,0,5"/>
+                            <Button Content="Unplayed" Click="Unplayed_Click" Margin="0,0,0,5"/>
+                            <Button Content="Possible duplicates" Click="Duplicates_Click" Margin="0,0,0,8"/>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
                             <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
