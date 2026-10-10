@@ -64,6 +64,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         PlaylistList.ItemsSource = playlistRows;
         QueueList.ItemsSource = queueRows;
         SongGrid.ItemsSource = rows;
+        ArtistFilter.Text = playerSettings.ArtistFilter;
+        AlbumFilter.Text = playerSettings.AlbumFilter;
+        GenreFilter.Text = playerSettings.GenreFilter;
+        YearFilter.Text = playerSettings.YearFilter;
+        LikedFilter.IsChecked = playerSettings.LikedFilter;
+        LocalFilter.IsChecked = playerSettings.LocalFilter;
+        ApplyFilters_Click(this, new RoutedEventArgs());
         SortBox.SelectedIndex = 0;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         timer.Tick += (_, _) => UpdateProgress();
@@ -1395,6 +1402,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         likedFilter = LikedFilter.IsChecked == true;
         localFilter = LocalFilter.IsChecked == true;
         yearFilter = uint.TryParse(YearFilter.Text, out var year) ? year : null;
+        playerSettings.ArtistFilter = artistFilter;
+        playerSettings.AlbumFilter = albumFilter;
+        playerSettings.GenreFilter = genreFilter;
+        playerSettings.YearFilter = YearFilter.Text.Trim();
+        playerSettings.LikedFilter = likedFilter;
+        playerSettings.LocalFilter = localFilter;
+        playerSettings.Save();
         Refresh();
     }
     void ResetFilters_Click(object sender, RoutedEventArgs e)
