@@ -162,7 +162,7 @@
                                         <DockPanel>
                                             <Border DockPanel.Dock="Left" Width="48" Height="34" CornerRadius="5" ClipToBounds="True"
                                                     Background="#252B38" Margin="0,0,9,0">
-                                                <Image Source="{Binding Artwork}" Stretch="UniformToFill"/>
+                                                <Image Source="{Binding Song.ArtworkUrl}" Stretch="UniformToFill"/>
                                             </Border>
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
@@ -192,7 +192,7 @@
                                         <TextBlock x:Name="UnifiedQueryHeading" Foreground="{StaticResource WaveMuted}" FontSize="12"/>
                                     </StackPanel>
                                 </DockPanel>
-                                <TextBlock Text="One search across your offline library and saved music links. Open each service to browse live results."
+                                <TextBlock Text="One search for offline music, live YouTube videos via yt-dlp, and saved SoundCloud/Spotify links."
                                            Foreground="{StaticResource WaveMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
                                 <DockPanel Margin="0,0,0,7">
                                     <TextBlock Text="Offline" FontSize="17" FontWeight="SemiBold"/>
@@ -246,7 +246,7 @@
                                                     ToolTip="Import authorized music using the installed tools"/>
                                         </Grid>
                                         <TextBlock x:Name="UnifiedStatus" Foreground="{StaticResource WaveMuted}" TextWrapping="Wrap"
-                                                   FontSize="11" Margin="0,8,0,0" Text="Provider search results open on their websites; saved matching links appear above."/>
+                                                   FontSize="11" Margin="0,8,0,0" Text="YouTube searches run inside Waveify; SoundCloud and Spotify open in your browser."/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
