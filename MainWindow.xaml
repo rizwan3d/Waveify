@@ -106,7 +106,7 @@
                             <Button Style="{StaticResource SidebarNew}" Click="Unplayed_Click" ToolTip="Unplayed"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="MusicNote224" Margin="0,0,12,0"/><TextBlock Text="Unplayed"/></StackPanel></Button>
                             <Button Style="{StaticResource SidebarNew}" Click="Duplicates_Click" ToolTip="Possible duplicates"><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="TextBulletListSquare24" Margin="0,0,12,0"/><TextBlock Text="Possible duplicates"/></StackPanel></Button>
                             <TextBlock Text="Playlists" Foreground="{StaticResource WaveMuted}" FontSize="12" Margin="8,0,0,8"/>
-                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" PreviewMouseRightButtonUp="PlaylistList_PreviewMouseRightButtonUp" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox x:Name="PlaylistList" ItemContainerStyle="{StaticResource PlaylistItemStyle}" Background="Transparent" BorderThickness="0" Foreground="White" SelectionChanged="PlaylistList_SelectionChanged" MouseDoubleClick="PlaylistList_MouseDoubleClick" PreviewMouseRightButtonUp="PlaylistList_PreviewMouseRightButtonUp" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="4,4,2,4">

@@ -65,6 +65,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     bool likedFilter, localFilter;
     uint? yearFilter;
     Playlist? selectedPlaylist;
+    Playlist? playbackPlaylist;
     bool likedOnly, shuffle, dragging;
     int repeatMode; // 0: off, 1: playlist, 2: one
     int playbackGeneration;
@@ -473,6 +474,33 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (!refreshingPlaylistRows && PlaylistList.SelectedItem is PlaylistRow { Playlist: var p } && !ReferenceEquals(selectedPlaylist, p))
             ShowPlaylist(p);
+    }
+    // A playlist's stored order is the playback order, even if its view is sorted
+    // or filtered. Missing files cannot be sent to the local audio player.
+    List<Song> PlayablePlaylistSongs(Playlist playlist)
+    {
+        var byId = library.Songs.GroupBy(song => song.Id).ToDictionary(group => group.Key, group => group.First());
+        var seen = new HashSet<Guid>();
+        var songs = new List<Song>();
+        foreach (var id in playlist.SongIds)
+        {
+            if (seen.Add(id) && byId.TryGetValue(id, out var song) && File.Exists(song.FilePath))
+                songs.Add(song);
+        }
+        return songs;
+    }
+    void PlayPlaylist(Playlist playlist)
+    {
+        ShowPlaylist(playlist);
+        PlayAll_Click(this, new RoutedEventArgs());
+    }
+    void PlaylistList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        DependencyObject? hit = e.OriginalSource as DependencyObject;
+        while (hit != null && hit is not ListBoxItem)
+            hit = VisualTreeHelper.GetParent(hit);
+        if (hit is ListBoxItem { DataContext: PlaylistRow row })
+            PlayPlaylist(row.Playlist);
     }
     void CreatePlaylist_Click(object sender, RoutedEventArgs e)
     {
@@ -1449,7 +1477,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     void SongList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     { if (SongList.SelectedItem is SongRow row) StartSong(row.Song); }
     void PlayAll_Click(object sender, RoutedEventArgs e)
-    { if (rows.FirstOrDefault(r => File.Exists(r.Song.FilePath)) is { } row) StartSong(row.Song); else MessageBox.Show("No playable local tracks in this view."); }
+    {
+        var songs = selectedPlaylist is { } playlist
+            ? PlayablePlaylistSongs(playlist)
+            : rows.Select(row => row.Song).Where(song => File.Exists(song.FilePath)).ToList();
+        if (songs.Count > 0) StartSong(songs[0]);
+        else MessageBox.Show("No playable local tracks in this view.");
+    }
     void StartSong(Song song, bool preserveQueue = false)
     {
         if (string.IsNullOrEmpty(song.FilePath) || !File.Exists(song.FilePath))
@@ -1472,11 +1506,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (current != null && reader != null)
                 playerSettings.LastPositionSeconds = reader.CurrentTime.TotalSeconds;
             Stop();
-            // User selections should play through the visible view, such as the
-            // selected playlist. Auto-advance and repeat keep the active queue.
+            // An explicit selection creates a complete queue for its playlist.
+            // Automatic advancement retains that queue even when the view changes.
             if (!preserveQueue)
-                queue = rows.Select(r => r.Song).Where(x => File.Exists(x.FilePath)).ToList();
-            RefreshQueueRows();
+            {
+                queue = selectedPlaylist is { } playlist
+                    ? PlayablePlaylistSongs(playlist)
+                    : rows.Select(row => row.Song).Where(x => File.Exists(x.FilePath)).ToList();
+                playbackPlaylist = selectedPlaylist;
+                if (!queue.Any(item => item.Id == song.Id))
+                {
+                    // A track selected outside the visible playlist starts its own queue.
+                    queue = rows.Select(row => row.Song).Where(x => File.Exists(x.FilePath)).ToList();
+                    playbackPlaylist = null;
+                }
+                if (!queue.Any(item => item.Id == song.Id))
+                    queue.Insert(0, song);
+            }
             reader = new AudioFileReader(song.FilePath) { Volume = (float)Volume.Value };
             if (!restoredPositionConsumed && playerSettings.LastTrackId == song.Id
                 && playerSettings.LastPositionSeconds > 0
@@ -1507,6 +1553,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     SetPlayIcon(false);
             });
             current = song; NowTitle.Text = song.Title; NowArtist.Text = song.Artist;
+            RefreshQueueRows();
             library.PlaybackHistory.Remove(song.Id);
             library.PlaybackHistory.Insert(0, song.Id);
             song.PlayCount++;
@@ -2036,6 +2083,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             item.Click += (_, _) => action();
             menu.Items.Add(item);
         }
+        Add("Play playlist", () => PlayPlaylist(playlist));
+        menu.Items.Add(new Separator());
         Add("Rename", () =>
         {
             var name = PromptDialog.Ask(this, "Rename playlist", "Name:", playlist.Name);
