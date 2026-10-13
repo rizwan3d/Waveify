@@ -43,6 +43,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     SongRow? draggedSong;
     Song? current;
     List<Song> queue = new();
+    readonly HashSet<Guid> shuffleVisited = new();
     readonly ObservableCollection<SongRow> offlineSearchRows = new();
     readonly ObservableCollection<SongRow> youtubeSearchRows = new();
     readonly DispatcherTimer youtubeSearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(650) };
@@ -1481,10 +1482,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var songs = selectedPlaylist is { } playlist
             ? PlayablePlaylistSongs(playlist)
             : rows.Select(row => row.Song).Where(song => File.Exists(song.FilePath)).ToList();
-        if (songs.Count > 0) StartSong(songs[0]);
+        if (songs.Count > 0) StartSong(songs[0], startFromBeginning: true);
         else MessageBox.Show("No playable local tracks in this view.");
     }
-    void StartSong(Song song, bool preserveQueue = false)
+    void StartSong(Song song, bool preserveQueue = false, bool startFromBeginning = false)
     {
         if (string.IsNullOrEmpty(song.FilePath) || !File.Exists(song.FilePath))
         {
@@ -1522,9 +1523,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 }
                 if (!queue.Any(item => item.Id == song.Id))
                     queue.Insert(0, song);
+                shuffleVisited.Clear();
             }
             reader = new AudioFileReader(song.FilePath) { Volume = (float)Volume.Value };
-            if (!restoredPositionConsumed && playerSettings.LastTrackId == song.Id
+            if (!startFromBeginning && !restoredPositionConsumed && playerSettings.LastTrackId == song.Id
                 && playerSettings.LastPositionSeconds > 0
                 && playerSettings.LastPositionSeconds < reader.TotalTime.TotalSeconds - 2)
             {
@@ -1547,12 +1549,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     SetPlayIcon(false);
                     return;
                 }
-                if (playingReader.Position >= playingReader.Length)
+                // Decoders can stop a fraction of a second before their reported
+                // length. Treat a near-end stop as a finished track.
+                if (playingReader.TotalTime - playingReader.CurrentTime <= TimeSpan.FromMilliseconds(350))
                     NextTrack(true);
                 else
                     SetPlayIcon(false);
             });
             current = song; NowTitle.Text = song.Title; NowArtist.Text = song.Artist;
+            shuffleVisited.Add(song.Id);
             RefreshQueueRows();
             library.PlaybackHistory.Remove(song.Id);
             library.PlaybackHistory.Insert(0, song.Id);
@@ -1600,6 +1605,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     }
     void PlayPause_Click(object sender, RoutedEventArgs e)
     {
+        // Play from the selected playlist instead of resuming an unrelated track.
+        if (selectedPlaylist != null && !ReferenceEquals(playbackPlaylist, selectedPlaylist) &&
+            (output == null || output.PlaybackState != PlaybackState.Playing))
+        {
+            PlayAll_Click(sender, e);
+            return;
+        }
         if (output == null || reader == null)
         {
             if (current != null) StartSong(current);
@@ -1613,11 +1625,37 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         else
         {
-            if (reader.Position >= reader.Length) reader.CurrentTime = TimeSpan.Zero;
+            // Playing again after the last song starts a new pass through the
+            // complete queue, not just the finished last track.
+            if (output.PlaybackState == PlaybackState.Stopped &&
+                reader.TotalTime - reader.CurrentTime <= TimeSpan.FromMilliseconds(350))
+            {
+                shuffleVisited.Clear();
+                if (selectedPlaylist != null && ReferenceEquals(playbackPlaylist, selectedPlaylist))
+                    PlayAll_Click(sender, e);
+                else if (queue.Count > 0)
+                    StartSong(queue[0], preserveQueue: true);
+                else if (current != null)
+                    StartSong(current);
+                return;
+            }
             output.Play();
             SetPlayIcon(true);
         }
         SaveAudioSettings();
+    }
+    void FinishQueue()
+    {
+        SetPlayIcon(false);
+        if (reader != null)
+        {
+            updatingProgress = true;
+            Progress.Value = 100;
+            updatingProgress = false;
+            Elapsed.Text = Total.Text;
+        }
+        playerSettings.LastPositionSeconds = 0;
+        playerSettings.Save();
     }
     void NextTrack(bool automatic = false)
     {
@@ -1631,31 +1669,27 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         int idx = queue.FindIndex(x => x.Id == current.Id);
         if (idx < 0) { SetPlayIcon(false); return; }
-        if (automatic && idx == queue.Count - 1 && repeatMode == 0 && !shuffle)
-        {
-            // End of queue: button becomes Play and progress remains at the end.
-            SetPlayIcon(false);
-            if (reader != null)
-            {
-                updatingProgress = true;
-                Progress.Value = 100;
-                updatingProgress = false;
-                Elapsed.Text = Total.Text;
-                playerSettings.LastPositionSeconds = 0;
-            }
-            playerSettings.Save();
-            return;
-        }
-        int next;
+        Song nextSong;
         if (shuffle)
         {
-            next = random.Next(queue.Count);
-            if (queue.Count > 1 && next == idx)
-                next = (next + 1) % queue.Count;
+            // Do not repeat a random selection before visiting the entire queue.
+            var remaining = queue.Where(song => song.Id != current.Id && !shuffleVisited.Contains(song.Id)).ToList();
+            if (remaining.Count == 0)
+            {
+                if (automatic && repeatMode == 0) { FinishQueue(); return; }
+                shuffleVisited.Clear();
+                shuffleVisited.Add(current.Id);
+                remaining = queue.Where(song => song.Id != current.Id).ToList();
+            }
+            nextSong = remaining.Count > 0 ? remaining[random.Next(remaining.Count)] : current;
         }
-        else next = (idx + 1) % queue.Count;
+        else
+        {
+            if (automatic && idx == queue.Count - 1 && repeatMode == 0) { FinishQueue(); return; }
+            nextSong = queue[(idx + 1) % queue.Count];
+        }
         playerSettings.LastPositionSeconds = 0;
-        StartSong(queue[next], preserveQueue: true);
+        StartSong(nextSong, preserveQueue: true);
     }
     void Next_Click(object sender, RoutedEventArgs e) => NextTrack(false);
     void Previous_Click(object sender, RoutedEventArgs e)
@@ -1824,7 +1858,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var song = current;
         var position = reader.CurrentTime;
         bool paused = output?.PlaybackState == PlaybackState.Paused;
-        StartSong(song);
+        StartSong(song, preserveQueue: true);
         if (reader != null) reader.CurrentTime = position;
         if (paused && output != null) { output.Pause(); SetPlayIcon(false); }
     }

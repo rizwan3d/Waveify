@@ -21,6 +21,8 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 
 - Sort songs using the library dropdown: playlist order, title, artist, or newest added.
 - In a playlist, drag a song onto another row to reorder it; the order is saved automatically. Select **Playlist order** to see the saved order.
+- Select a playlist and press the large **Play** button to play every available local track in its saved order. You can also double-click a playlist in the sidebar or right-click it and select **Play playlist**. Track sorting and display filters do not cut the playlist playback queue short.
+- Playback advances to the next song automatically. When shuffle is on, each queued track is visited once before the playlist ends or repeats. Press Play after the final song to begin the list again; repeat-one stays on the current song.
 - Right-click a song to edit its title, artist, album, and genre. These edits update Waveify's library metadata (they do not rewrite the audio file tags).
 - **Recently Added** displays the 50 newest imports, and **Recently Played** keeps the last 100 distinct tracks between launches.
 - Home offers artist, album, and genre shelves. Double-click a shelf track to play it.
@@ -56,6 +58,17 @@ Waveify is a Windows desktop music player for building and enjoying an offline m
 - Use the **Import a music link** controls in the results pane to paste a provider URL, preview available public metadata and import audio you own or are authorized to download.
 - Authorized downloads use the existing tools: yt-dlp and FFmpeg for supported YouTube/SoundCloud URLs, Sunnify for supported Spotify URLs, and a 150 MB limit on direct HTTPS audio files.
 - Downloader availability, music rights, and service restrictions still apply. Searching does not automatically download music.
+
+## Playlist playback check
+
+On Windows with multiple imported local tracks, verify the following:
+
+1. Create a playlist with three or more songs. Select it and press Play; playback should begin with its first playable song and advance through all songs, stopping after the last when repeat is off.
+2. Choose a different sort order or apply a library display filter; the playlist should continue in the saved playlist order.
+3. Double-click the playlist in the sidebar and try **Play playlist** from its context menu; both should start it from the beginning.
+4. Enable shuffle; each song should play once before the queue finishes. Enable repeat playlist to start another pass, or repeat one to replay only the current track.
+5. Switch the audio output device mid-song; the next songs should still come from the active playlist.
+6. Once the playlist finishes, press Play again; the entire playlist should restart. An empty playlist or playlist with missing local files should report that nothing can be played.
 
 ## Dependencies
 
